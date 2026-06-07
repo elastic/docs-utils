@@ -1,0 +1,9 @@
+# Build output
+dist/
+docs-harness
+
+# bin/ ships pre-built binaries while this repo is private so contributors
+# don't need a Go toolchain. Once the repo is public, delete bin/ and rely
+# on GitHub Releases — the install.sh falls through to the download path.
+# Uncomment this line after going public:
+# bin/

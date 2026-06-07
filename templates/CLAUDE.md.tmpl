@@ -1,0 +1,37 @@
+# Elastic Docs — project instructions
+
+This repository contains Elastic documentation. The following skills and tools
+are available for your workflow.
+
+## Available tools
+
+- **Elastic Docs MCP** (`elastic-docs`, `elastic-internal-docs`): search and
+  retrieve Elastic documentation pages. Use `search_docs` and
+  `get_document_by_url` freely when writing or reviewing content.
+
+## Authoring guidelines
+
+- All pages use MyST Markdown with Elastic extensions. Run `/docs-syntax-help`
+  if you are unsure about a directive.
+- `applies_to` frontmatter is required on every page. Run `/applies-to-tagging`
+  to validate.
+- Style is enforced by Vale (Elastic rules). Run `/docs-check-style <file>` on
+  any changed `.md` before committing.
+
+## Changelogs
+
+Changelog entries live in `<source>/.changelog/` as YAML files. Run
+`/review-changelog` to audit, `/fix-changelog` to improve weak entries.
+
+## Useful commands
+
+| Command | Purpose |
+|---|---|
+| `/docs-check-style <file>` | Vale style check |
+| `/applies-to-tagging <file>` | Validate applies_to metadata |
+| `/crosslink-validator <file>` | Check cross-links |
+| `/frontmatter-audit <dir>` | Audit frontmatter completeness |
+| `/review-changelog <file>` | Audit a changelog entry |
+| `/fix-changelog <file>` | Improve a changelog entry |
+| `/docs-setup` | Reconfigure the Elastic Docs Harness |
+| `/docs-update` | Check and apply tool/skill updates |

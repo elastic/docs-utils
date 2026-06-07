@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"$HOME/.claude/docs-harness/hooks/check-updates.sh\" 2>/dev/null || true"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "HOOK_EVENT=UserPromptSubmit bash \"$HOME/.claude/docs-harness/hooks/dispatch.sh\" 2>/dev/null || true"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "type": "command",
+        "command": "HOOK_EVENT=PostToolUse bash \"$HOME/.claude/docs-harness/hooks/dispatch.sh\" 2>/dev/null || true"
+      }
+    ]
+  }
+}

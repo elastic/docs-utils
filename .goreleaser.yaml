@@ -1,0 +1,67 @@
+version: 2
+
+project_name: docs-harness
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: docs-harness
+    main: ./cmd/docs-harness
+    binary: docs-harness
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE.txt
+      - NOTICE.txt
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+# Copy binaries into bin/ for local-clone installs (private repo phase).
+# Remove this block and delete bin/ once the repo is public.
+after:
+  hooks:
+    - cmd: bash -c 'mkdir -p bin && for f in dist/docs-harness_*/docs-harness dist/docs-harness_*/docs-harness.exe; do [ -f "$f" ] || continue; dir=$(dirname "$f"); base=$(basename "$dir"); platform="${base#docs-harness_}"; name="docs-harness_${platform}"; [ "${f%.exe}" != "$f" ] && name="${name}.exe"; cp "$f" "bin/$name"; done'
+      output: true
+
+release:
+  github:
+    owner: elastic
+    name: docs-harness
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+  footer: |
+    ## Install
+
+    ```bash
+    curl -sSL https://github.com/elastic/docs-harness/releases/latest/download/install.sh | bash
+    ```
+
+    Or on Windows (PowerShell):
+    ```powershell
+    irm https://github.com/elastic/docs-harness/releases/latest/download/install.ps1 | iex
+    ```

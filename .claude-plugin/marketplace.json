@@ -1,0 +1,24 @@
+{
+  "name": "docs-harness",
+  "owner": {
+    "name": "Elastic",
+    "email": "docs@elastic.co"
+  },
+  "metadata": {
+    "description": "Turnkey Claude Code environment for Elastic documentation contributors — MCP servers, skill catalogs, provider toggle, and update checks.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "docs-harness",
+      "source": "./",
+      "description": "Turnkey Claude Code environment for Elastic documentation contributors.",
+      "author": {
+        "name": "Elastic"
+      },
+      "homepage": "https://github.com/elastic/docs-harness",
+      "repository": "https://github.com/elastic/docs-harness",
+      "license": "Apache-2.0"
+    }
+  ]
+}

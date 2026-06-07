@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "elastic-internal-docs": {
+      "type": "http",
+      "url": "https://codex.elastic.dev/mcp"
+    },
+    "elastic-docs": {
+      "type": "http",
+      "url": "https://www.elastic.co/docs/_mcp/"
+    }
+  }
+}
