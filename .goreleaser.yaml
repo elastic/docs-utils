@@ -40,13 +40,6 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# Copy binaries into bin/ for local-clone installs (private repo phase).
-# Remove this block and delete bin/ once the repo is public.
-after:
-  hooks:
-    - cmd: bash -c 'mkdir -p bin && for f in dist/docs-harness_*/docs-harness dist/docs-harness_*/docs-harness.exe; do [ -f "$f" ] || continue; dir=$(dirname "$f"); base=$(basename "$dir"); platform="${base#docs-harness_}"; name="docs-harness_${platform}"; [ "${f%.exe}" != "$f" ] && name="${name}.exe"; cp "$f" "bin/$name"; done'
-      output: true
-
 release:
   github:
     owner: elastic
