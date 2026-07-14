@@ -92,3 +92,9 @@ func TestShellQuote(t *testing.T) {
 		t.Fatalf("quoted command = %q", got)
 	}
 }
+
+func TestClaudeHookCommandRequiresExecutable(t *testing.T) {
+	if _, err := claudeHookCommand(""); err == nil {
+		t.Fatal("empty executable was accepted")
+	}
+}

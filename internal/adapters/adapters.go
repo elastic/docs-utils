@@ -105,14 +105,14 @@ func MigrateLegacy(dryRun bool) (bool, error) {
 }
 
 // Sync configures MCP entries in supported hosts.
-func Sync(targets []hosts.ID, internal, dryRun, force bool) (Result, error) {
+func Sync(targets []hosts.ID, internal, dryRun, force bool, executable string) (Result, error) {
 	result := Result{Hosts: map[string]state.HostState{}}
 	for _, host := range targets {
 		var files []string
 		var err error
 		switch host {
 		case hosts.Claude:
-			files, err = addClaude(internal, dryRun)
+			files, err = addClaude(internal, dryRun, executable)
 		case hosts.Codex:
 			files, err = addCodex(internal, dryRun)
 		case hosts.Cursor:
@@ -184,7 +184,7 @@ func servers(internal bool) []struct{ name, url string } {
 	return items
 }
 
-func addClaude(internal, dryRun bool) ([]string, error) {
+func addClaude(internal, dryRun bool, executable string) ([]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func addClaude(internal, dryRun bool) ([]string, error) {
 	if dryRun {
 		return []string{filepath.Join(home, ".claude.json"), path}, nil
 	}
-	command, err := claudeHookCommand()
+	command, err := claudeHookCommand(executable)
 	if err != nil {
 		return nil, err
 	}
@@ -359,10 +359,9 @@ func claudeHookPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
-func claudeHookCommand() (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("locate Elastic Docs Utils executable: %w", err)
+func claudeHookCommand(executable string) (string, error) {
+	if executable == "" {
+		return "", fmt.Errorf("locate Elastic Docs Utils executable")
 	}
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		executable = resolved

@@ -31,7 +31,110 @@ const (
 	valeRulesRaw       = "https://raw.githubusercontent.com/elastic/vale-rules/main/"
 	docsBuilderUnix    = "https://ela.st/docs-builder-install"
 	docsBuilderWindows = "https://ela.st/docs-builder-install-win"
+	binaryName         = "elastic-docs-utils"
 )
+
+// SelfInstall describes the stable executable location selected for the
+// current binary.
+type SelfInstall struct {
+	Path      string
+	Installed bool
+}
+
+// EnsureSelfInstalled copies a binary started from a checkout or download to
+// a durable executable location. It prefers /usr/local/bin when writable and
+// otherwise uses the user's ~/.local/bin directory. Windows uses LocalAppData.
+// The returned path is suitable for long-lived host hooks.
+func EnsureSelfInstalled(dryRun bool) (SelfInstall, error) {
+	current, err := os.Executable()
+	if err != nil {
+		return SelfInstall{}, fmt.Errorf("locate Elastic Docs Utils executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(current); err == nil {
+		current = resolved
+	}
+	targets, err := selfInstallTargets()
+	if err != nil {
+		return SelfInstall{}, err
+	}
+	for _, target := range targets {
+		if samePath(current, target) {
+			return SelfInstall{Path: target}, nil
+		}
+	}
+	if dryRun {
+		return SelfInstall{Path: targets[0]}, nil
+	}
+	for _, target := range targets {
+		if err := copyExecutable(current, target); err == nil {
+			return SelfInstall{Path: target, Installed: true}, nil
+		}
+	}
+	return SelfInstall{}, fmt.Errorf("install Elastic Docs Utils to a durable binary directory")
+}
+
+func selfInstallTargets() ([]string, error) {
+	if runtime.GOOS == "windows" {
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			return nil, fmt.Errorf("LOCALAPPDATA is not set")
+		}
+		return []string{filepath.Join(localAppData, "Elastic", "DocsUtils", binaryName+".exe")}, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		filepath.Join("/usr/local/bin", binaryName),
+		filepath.Join(home, ".local", "bin", binaryName),
+	}, nil
+}
+
+func samePath(left, right string) bool {
+	if resolved, err := filepath.EvalSymlinks(left); err == nil {
+		left = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(right); err == nil {
+		right = resolved
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
+}
+
+func copyExecutable(source, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	temporary, err := os.CreateTemp(filepath.Dir(target), ".elastic-docs-utils-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := io.Copy(temporary, input); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Chmod(0o755); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, target); err == nil {
+		return nil
+	}
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(temporaryPath, target)
+}
 
 // InstallVale delegates to the official Elastic Vale Rules installer, which
 // installs the Vale binary when necessary and installs the Elastic rule bundle.

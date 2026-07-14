@@ -503,7 +503,17 @@ func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) e
 		}
 	}
 	r.Section("Synchronizing host adapters")
-	adapterResult, err := adapters.Sync(ids, internal, dryRun, force)
+	self, err := bootstrap.EnsureSelfInstalled(dryRun)
+	if err != nil {
+		return err
+	}
+	if self.Installed {
+		r.Info("Installed Elastic Docs Utils to %s.", self.Path)
+		r.Verbose("Installed Elastic Docs Utils binary: %s", self.Path)
+	} else if dryRun {
+		r.Verbose("Would install Elastic Docs Utils binary: %s", self.Path)
+	}
+	adapterResult, err := adapters.Sync(ids, internal, dryRun, force, self.Path)
 	if err != nil {
 		return err
 	}

@@ -13,7 +13,11 @@
 
 package bootstrap
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestExtension(t *testing.T) {
 	if got := extension("powershell"); got != ".ps1" {
@@ -21,5 +25,38 @@ func TestExtension(t *testing.T) {
 	}
 	if got := extension("bash"); got != ".sh" {
 		t.Fatalf("shell extension = %q", got)
+	}
+}
+
+func TestSamePath(t *testing.T) {
+	path := filepath.Join("/tmp", "elastic-docs-utils")
+	if !samePath(path, path) {
+		t.Fatal("identical paths differ")
+	}
+}
+
+func TestCopyExecutable(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	target := filepath.Join(dir, "bin", binaryName)
+	if err := os.WriteFile(source, []byte("binary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyExecutable(source, target); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "binary" {
+		t.Fatalf("copied binary = %q", data)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %o, want 755", info.Mode().Perm())
 	}
 }

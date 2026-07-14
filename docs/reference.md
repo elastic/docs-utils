@@ -34,10 +34,12 @@ Claude Code and Cursor CLI receive skill discovery links below their respective
 configuration is retained unless `--force` is explicitly supplied for a
 conflicting Elastic Docs MCP entry.
 
-The Claude Code session hook records the absolute path of the binary that
-configured it, so it works even when Claude Code starts without the shell PATH.
-Run `elastic-docs-utils sync --host claude` after moving or replacing a
-manually downloaded binary to refresh that path.
+Before configuring host adapters, `install`, `sync`, and `update` place a
+binary started from a checkout or download into `/usr/local/bin` when writable,
+or `~/.local/bin` otherwise. On Windows, the location is
+`%LOCALAPPDATA%\Elastic\DocsUtils`. The Claude Code session hook records this
+durable absolute path, so it works even when Claude Code starts without the
+shell PATH.
 
 ## Optional documentation tools
 

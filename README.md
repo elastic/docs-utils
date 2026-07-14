@@ -88,8 +88,11 @@ endpoint) and skill directories not created by Elastic Docs Utils are left
 untouched. Use `--force` only when you want to replace a genuinely conflicting
 Elastic Docs MCP entry with the canonical configuration. The installer also
 removes only the retired `docs-harness` hook entries, leaving other Claude
-settings alone. Its Claude Code session hook uses the absolute installed-binary
-path, so it does not depend on Claude Code inheriting your shell PATH.
+settings alone. A binary started from a checkout or download is copied to
+`/usr/local/bin` when writable, otherwise `~/.local/bin` (or the equivalent
+per-user Windows location), before a Claude Code session hook is configured.
+The hook uses that durable absolute path, so it does not depend on Claude Code
+inheriting your shell PATH.
 
 ## Add a harness adapter
 
