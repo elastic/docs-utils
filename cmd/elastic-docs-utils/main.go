@@ -37,7 +37,8 @@ import (
 var Version = "dev"
 
 type globalFlags struct {
-	color string
+	color   string
+	verbose bool
 }
 
 func main() {
@@ -54,6 +55,7 @@ func run(args []string) error {
 		return err
 	}
 	renderer := ui.New(ui.ColorMode(global.color), os.Stdout, os.Stderr)
+	renderer.SetVerbose(global.verbose)
 	if len(args) == 0 {
 		return commandInstall(renderer, nil)
 	}
@@ -89,6 +91,11 @@ func run(args []string) error {
 func parseGlobal(args []string, flags *globalFlags) ([]string, error) {
 	remaining := make([]string, 0, len(args))
 	for len(args) > 0 {
+		if args[0] == "--verbose" {
+			flags.verbose = true
+			args = args[1:]
+			continue
+		}
 		if !strings.HasPrefix(args[0], "--color") {
 			remaining, args = append(remaining, args[0]), args[1:]
 			continue
@@ -153,6 +160,9 @@ func commandInstall(r *ui.Renderer, args []string) error {
 		if err := state.SavePreferences(state.Preferences{Hosts: hosts.Strings(ids), Internal: *internal}); err != nil {
 			return err
 		}
+		if path, err := paths.PreferencesPath(); err == nil {
+			r.Verbose("Updated preferences: %s", path)
+		}
 		if err := refreshUpdates(r); err != nil {
 			return err
 		}
@@ -183,12 +193,14 @@ func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun bool) error 
 	}
 	if vale {
 		r.Info("Installing Vale and Elastic Vale rules.")
+		r.Verbose("Runs the upstream Elastic Vale Rules installer; it reports the Vale binary, configuration, and rule paths it edits.")
 		if err := bootstrap.InstallVale(); err != nil {
 			return fmt.Errorf("install Vale and Elastic Vale rules: %w", err)
 		}
 	}
 	if docsBuilder {
 		r.Info("Installing docs-builder.")
+		r.Verbose("Runs the upstream docs-builder installer; it reports the binary path it edits.")
 		if err := bootstrap.InstallDocsBuilder(); err != nil {
 			return fmt.Errorf("install docs-builder: %w", err)
 		}
@@ -469,8 +481,14 @@ func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) e
 	}
 	if dryRun {
 		r.Info("Would refresh public%s skills in ~/.agents/skills.", map[bool]string{true: " and internal", false: ""}[internal])
+		if root, err := paths.CanonicalSkillsDir(); err == nil {
+			r.Verbose("Would refresh managed skills beneath: %s", root)
+		}
 	} else {
 		r.Success("Installed %d managed skills.", len(skillResult.Installed))
+		for _, path := range skillResult.Files {
+			r.Verbose("Updated managed skill or discovery link: %s", path)
+		}
 	}
 	r.Section("Synchronizing host adapters")
 	adapterResult, err := adapters.Sync(ids, internal, dryRun, force)
@@ -478,17 +496,28 @@ func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) e
 		return err
 	}
 	if dryRun {
+		for name, host := range adapterResult.Hosts {
+			for _, path := range host.Files {
+				r.Verbose("Would update %s configuration: %s", name, path)
+			}
+		}
 		r.Info("Would configure %d selected host adapters.", len(ids))
 		return nil
 	}
 	for name, host := range adapterResult.Hosts {
 		s.Hosts[name] = host
+		for _, path := range host.Files {
+			r.Verbose("Updated %s configuration: %s", name, path)
+		}
 	}
 	for name, record := range skillResult.Records {
 		s.Skills[name] = record
 	}
 	if err := state.Save(s); err != nil {
 		return err
+	}
+	if path, err := paths.StatePath(); err == nil {
+		r.Verbose("Updated managed state: %s", path)
 	}
 	for _, warning := range adapterResult.Warnings {
 		r.Warn("%s", warning)
@@ -529,5 +558,6 @@ Commands:
 
 Global options:
   --color auto|always|never
+  --verbose                 Show managed file locations that are changed
 `)
 }

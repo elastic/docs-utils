@@ -114,7 +114,7 @@ func Sync(targets []hosts.ID, internal, dryRun, force bool) (Result, error) {
 		case hosts.Claude:
 			files, err = addClaude(internal, dryRun)
 		case hosts.Codex:
-			err = addCodex(internal, dryRun)
+			files, err = addCodex(internal, dryRun)
 		case hosts.Cursor:
 			files, err = writeCursor(internal, dryRun, force)
 		case hosts.OpenCode:
@@ -185,6 +185,10 @@ func servers(internal bool) []struct{ name, url string } {
 }
 
 func addClaude(internal, dryRun bool) ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
 	for _, server := range servers(internal) {
 		if dryRun {
 			continue
@@ -193,29 +197,30 @@ func addClaude(internal, dryRun bool) ([]string, error) {
 			return nil, err
 		}
 	}
-	path, err := claudeHookPath()
-	if err != nil {
-		return nil, err
-	}
+	path := filepath.Join(home, ".claude", "settings.json")
 	if dryRun {
-		return []string{path}, nil
+		return []string{filepath.Join(home, ".claude.json"), path}, nil
 	}
 	if err := writeClaudeHook(path); err != nil {
 		return nil, err
 	}
-	return []string{path}, nil
+	return []string{filepath.Join(home, ".claude.json"), path}, nil
 }
 
-func addCodex(internal, dryRun bool) error {
+func addCodex(internal, dryRun bool) ([]string, error) {
 	for _, server := range servers(internal) {
 		if dryRun {
 			continue
 		}
 		if err := runAdd("codex", "mcp", "add", server.name, "--url", server.url); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return []string{filepath.Join(home, ".codex", "config.toml")}, nil
 }
 
 func runAdd(command string, args ...string) error {

@@ -35,10 +35,14 @@ const (
 // Renderer renders human-readable command output. JSON-producing callers do
 // not use this type.
 type Renderer struct {
-	out   io.Writer
-	err   io.Writer
-	color bool
+	out     io.Writer
+	err     io.Writer
+	color   bool
+	verbose bool
 }
+
+// SetVerbose enables diagnostic file-change output for mutating commands.
+func (r *Renderer) SetVerbose(enabled bool) { r.verbose = enabled }
 
 // New creates a renderer. ColorAuto honors NO_COLOR, TERM=dumb, and whether
 // stdout is an interactive terminal.
@@ -118,6 +122,15 @@ func (r *Renderer) Section(format string, args ...any) {
 
 func (r *Renderer) Info(format string, args ...any) {
 	fmt.Fprintf(r.out, "%s %s\n", r.paint("36;1", "[INFO]"), fmt.Sprintf(format, args...))
+}
+
+// Verbose describes an owned file or configuration location changed by a
+// command. It never prints secrets or configuration contents.
+func (r *Renderer) Verbose(format string, args ...any) {
+	if !r.verbose {
+		return
+	}
+	fmt.Fprintf(r.out, "%s %s\n", r.paint("90", "[VERBOSE]"), fmt.Sprintf(format, args...))
 }
 
 func (r *Renderer) Success(format string, args ...any) {

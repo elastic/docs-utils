@@ -41,6 +41,7 @@ type Result struct {
 	Installed []string
 	Linked    []string
 	Records   map[string]state.SkillState
+	Files     []string
 }
 
 // Sync fetches enabled catalogs, installs all skills into ~/.agents/skills,
@@ -79,6 +80,7 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 			}
 			result.Installed = append(result.Installed, name)
 			result.Records[name] = state.SkillState{Source: repo, Commit: commit}
+			result.Files = append(result.Files, destination)
 		}
 		if err := os.RemoveAll(staging); err != nil {
 			return result, err
@@ -93,10 +95,12 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 	}
 	for _, id := range targets {
 		for _, target := range linkRoots(id) {
-			if err := linkAll(root, target); err != nil {
+			links, err := linkAll(root, target)
+			if err != nil {
 				return result, err
 			}
 			result.Linked = append(result.Linked, string(id))
+			result.Files = append(result.Files, links...)
 		}
 	}
 	return result, nil
@@ -255,14 +259,15 @@ func linkRoots(id hosts.ID) []string {
 	}
 }
 
-func linkAll(source, target string) error {
+func linkAll(source, target string) ([]string, error) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	entries, err := os.ReadDir(source)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	links := []string{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -273,11 +278,12 @@ func linkAll(source, target string) error {
 		}
 		if err := os.Symlink(filepath.Join(source, entry.Name()), link); err != nil {
 			if err := copyDir(filepath.Join(source, entry.Name()), link); err != nil {
-				return err
+				return nil, err
 			}
 		}
+		links = append(links, link)
 	}
-	return nil
+	return links, nil
 }
 
 // RemoveOwned deletes only skill directories carrying this product's marker.

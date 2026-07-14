@@ -55,6 +55,9 @@ installs Vale when needed and configures the Elastic rules. Use
 are explicit because the upstream installers can install system tools and may
 ask before replacing existing local configuration.
 
+See the [command and managed-locations reference](docs/reference.md) for
+`--verbose`, configuration paths, and optional-tool locations.
+
 ## What it manages
 
 - Canonical skills at `~/.agents/skills`; Claude Code and Cursor receive links
