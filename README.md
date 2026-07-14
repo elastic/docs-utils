@@ -32,7 +32,7 @@ elastic-docs-utils install --host claude,codex,cursor --internal
 ## Commands
 
 ```text
-elastic-docs-utils install [--host <hosts>] [--internal] [--yes] [--dry-run]
+elastic-docs-utils install [--host <hosts>] [--internal] [--with-vale] [--with-docs-builder] [--yes] [--dry-run]
 elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force]
 elastic-docs-utils status [--json|--quiet]
 elastic-docs-utils check-updates [--json]
@@ -48,6 +48,12 @@ network requests or modify tools. Run `check-updates` to refresh the cache and
 Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic
 Docs Utils.
+
+Use `--with-vale` to run the maintained Elastic Vale Rules installer. It
+installs Vale when needed and configures the Elastic rules. Use
+`--with-docs-builder` to run the maintained docs-builder installer. Both flags
+are explicit because the upstream installers can install system tools and may
+ask before replacing existing local configuration.
 
 ## What it manages
 

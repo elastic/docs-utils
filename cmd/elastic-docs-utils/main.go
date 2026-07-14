@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/elastic/docs-utils/internal/adapters"
+	"github.com/elastic/docs-utils/internal/bootstrap"
 	"github.com/elastic/docs-utils/internal/hosts"
 	"github.com/elastic/docs-utils/internal/paths"
 	"github.com/elastic/docs-utils/internal/skills"
@@ -118,6 +119,8 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	yes := fs.Bool("yes", false, "non-interactive")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
 	force := fs.Bool("force", false, "replace owned conflicts")
+	withVale := fs.Bool("with-vale", false, "install Vale and Elastic Vale rules")
+	withDocsBuilder := fs.Bool("with-docs-builder", false, "install docs-builder")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -139,6 +142,9 @@ func commandInstall(r *ui.Renderer, args []string) error {
 		rows = append(rows, []string{string(id), "selected"})
 	}
 	r.Table([]string{"HOST", "STATUS"}, rows)
+	if err := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun); err != nil {
+		return err
+	}
 
 	if err := synchronize(ids, *internal, *dryRun, *force, r); err != nil {
 		return err
@@ -158,6 +164,35 @@ func commandInstall(r *ui.Renderer, args []string) error {
 		r.Warn("Replacing conflicting managed MCP entries with the Elastic Docs Utils configuration.")
 	}
 	r.Success("Elastic Docs Utils is configured.")
+	return nil
+}
+
+func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun bool) error {
+	if !vale && !docsBuilder {
+		return nil
+	}
+	r.Section("Installing documentation tools")
+	if dryRun {
+		if vale {
+			r.Info("Would run the supported Elastic Vale Rules installer.")
+		}
+		if docsBuilder {
+			r.Info("Would run the supported docs-builder installer.")
+		}
+		return nil
+	}
+	if vale {
+		r.Info("Installing Vale and Elastic Vale rules.")
+		if err := bootstrap.InstallVale(); err != nil {
+			return fmt.Errorf("install Vale and Elastic Vale rules: %w", err)
+		}
+	}
+	if docsBuilder {
+		r.Info("Installing docs-builder.")
+		if err := bootstrap.InstallDocsBuilder(); err != nil {
+			return fmt.Errorf("install docs-builder: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -483,7 +518,7 @@ Usage:
   elastic-docs-utils <command> [options]
 
 Commands:
-  install        Configure detected coding-agent harnesses
+  install        Configure detected coding-agent harnesses and optional tools
   sync           Reconcile selected host integrations
   status         Show configuration and cached update status
   check-updates  Refresh update status
