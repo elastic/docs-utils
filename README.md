@@ -3,6 +3,8 @@
 Elastic Docs Utils configures a consistent documentation-authoring environment
 for Claude Code, Codex, Cursor CLI, and OpenCode.
 
+<img alt="Screenshot 2026-07-14 at 15 07 53" src="https://github.com/user-attachments/assets/86fb0243-042d-43a8-80e6-827d8373bcd9" />
+
 It installs Elastic documentation skills into the shared `~/.agents/skills`
 location, exposes them to hosts that need a discovery link, and configures the
 public Elastic Docs MCP server. Elastic employees can opt into the internal
