@@ -125,9 +125,10 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	internal := fs.Bool("internal", false, "enable Elastic internal docs")
 	yes := fs.Bool("yes", false, "non-interactive")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
-	force := fs.Bool("force", false, "replace owned conflicts")
+	force := fs.Bool("force", false, "replace managed conflicts and re-run selected tool installers")
 	withVale := fs.Bool("with-vale", false, "install Vale and Elastic Vale rules")
 	withDocsBuilder := fs.Bool("with-docs-builder", false, "install docs-builder")
+	withDocsTools := fs.Bool("with-docs-tools", false, "install Vale, Elastic Vale rules, and docs-builder")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,13 +144,17 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	if len(ids) == 0 {
 		return errors.New("no supported harnesses detected; install Claude Code, Codex, Cursor CLI, or OpenCode, or pass --host")
 	}
+	if *withDocsTools {
+		*withVale = true
+		*withDocsBuilder = true
+	}
 	r.Section("Configuring agent harnesses")
 	rows := make([][]string, 0, len(ids))
 	for _, id := range ids {
 		rows = append(rows, []string{string(id), "selected"})
 	}
 	r.Table([]string{"HOST", "STATUS"}, rows)
-	if err := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun); err != nil {
+	if err := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun, *force); err != nil {
 		return err
 	}
 
@@ -177,35 +182,42 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	return nil
 }
 
-func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun bool) error {
+func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force bool) error {
 	if !vale && !docsBuilder {
 		return nil
 	}
 	r.Section("Installing documentation tools")
 	if dryRun {
 		if vale {
-			r.Info("Would run the supported Elastic Vale Rules installer.")
+			r.Info("Would run the supported Elastic Vale Rules installer%s.", forced(force))
 		}
 		if docsBuilder {
-			r.Info("Would run the supported docs-builder installer.")
+			r.Info("Would run the supported docs-builder installer%s.", forced(force))
 		}
 		return nil
 	}
 	if vale {
-		r.Info("Installing Vale and Elastic Vale rules.")
+		r.Info("Installing Vale and Elastic Vale rules%s.", forced(force))
 		r.Verbose("Runs the upstream Elastic Vale Rules installer; it reports the Vale binary, configuration, and rule paths it edits.")
-		if err := bootstrap.InstallVale(); err != nil {
+		if err := bootstrap.InstallVale(force); err != nil {
 			return fmt.Errorf("install Vale and Elastic Vale rules: %w", err)
 		}
 	}
 	if docsBuilder {
-		r.Info("Installing docs-builder.")
+		r.Info("Installing docs-builder%s.", forced(force))
 		r.Verbose("Runs the upstream docs-builder installer; it reports the binary path it edits.")
-		if err := bootstrap.InstallDocsBuilder(); err != nil {
+		if err := bootstrap.InstallDocsBuilder(force); err != nil {
 			return fmt.Errorf("install docs-builder: %w", err)
 		}
 	}
 	return nil
+}
+
+func forced(force bool) string {
+	if force {
+		return " (forcing replacement)"
+	}
+	return ""
 }
 
 func commandSync(r *ui.Renderer, args []string) error {

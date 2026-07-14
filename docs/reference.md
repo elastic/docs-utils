@@ -12,6 +12,7 @@ Global options can appear before or after the command:
 ```bash
 elastic-docs-utils --verbose install --with-vale
 elastic-docs-utils install --verbose --with-docs-builder
+elastic-docs-utils install --verbose --with-docs-tools
 ```
 
 ## Managed locations
@@ -34,6 +35,17 @@ configuration is retained unless `--force` is explicitly supplied for a
 conflicting Elastic Docs MCP entry.
 
 ## Optional documentation tools
+
+`install --with-docs-tools` is the recommended first-time setup option. It runs
+both upstream installers, ensuring Vale is present, installing the Elastic Vale
+rules, and installing docs-builder. The narrower `--with-vale` and
+`--with-docs-builder` options run only the corresponding installer.
+
+Pair any of these options with `--force` to accept the upstream installers'
+replacement prompts. This replaces a non-Elastic Vale configuration and
+overwrites docs-builder when it already exists. The upstream Vale installer
+keeps an existing Vale executable package-managed; it refreshes the Elastic
+rules rather than forcibly replacing the executable.
 
 `install --with-vale` runs the maintained Elastic Vale Rules platform
 installer. It may install the Vale binary and manages the following locations:

@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -34,23 +35,25 @@ const (
 
 // InstallVale delegates to the official Elastic Vale Rules installer, which
 // installs the Vale binary when necessary and installs the Elastic rule bundle.
-func InstallVale() error {
+// Force confirms replacement of an existing non-Elastic Vale configuration.
+func InstallVale(force bool) error {
 	name, shell, err := valeScript()
 	if err != nil {
 		return err
 	}
-	return downloadAndRun(valeRulesRaw+name, shell)
+	return downloadAndRun(valeRulesRaw+name, shell, force)
 }
 
-// InstallDocsBuilder delegates to the official Docs Builder installer.
-func InstallDocsBuilder() error {
+// InstallDocsBuilder delegates to the official Docs Builder installer. Force
+// confirms replacement when the installer finds an existing binary.
+func InstallDocsBuilder(force bool) error {
 	if runtime.GOOS == "windows" {
-		return downloadAndRun(docsBuilderWindows, "powershell")
+		return downloadAndRun(docsBuilderWindows, "powershell", force)
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return fmt.Errorf("docs-builder installation is not supported on %s", runtime.GOOS)
 	}
-	return downloadAndRun(docsBuilderUnix, "sh")
+	return downloadAndRun(docsBuilderUnix, "sh", force)
 }
 
 func valeScript() (string, string, error) {
@@ -66,7 +69,7 @@ func valeScript() (string, string, error) {
 	}
 }
 
-func downloadAndRun(url, shell string) error {
+func downloadAndRun(url, shell string, force bool) error {
 	path, err := download(url, extension(shell))
 	if err != nil {
 		return err
@@ -77,7 +80,15 @@ func downloadAndRun(url, shell string) error {
 		return err
 	}
 	cmd := exec.Command(command, args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if force {
+		// The maintained installers ask only before replacing existing local
+		// configuration or binaries. Supplying yes lets --force be safely
+		// non-interactive without exposing configuration contents.
+		cmd.Stdin = strings.NewReader("y\n")
+	} else {
+		cmd.Stdin = os.Stdin
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run upstream installer: %w", err)
 	}

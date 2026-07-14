@@ -32,7 +32,7 @@ elastic-docs-utils install --host claude,codex,cursor --internal
 ## Commands
 
 ```text
-elastic-docs-utils install [--host <hosts>] [--internal] [--with-vale] [--with-docs-builder] [--yes] [--dry-run]
+elastic-docs-utils install [--host <hosts>] [--internal] [--with-docs-tools|--with-vale|--with-docs-builder] [--yes] [--dry-run] [--force]
 elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force]
 elastic-docs-utils status [--json|--quiet]
 elastic-docs-utils check-updates [--json]
@@ -49,11 +49,28 @@ Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic
 Docs Utils.
 
-Use `--with-vale` to run the maintained Elastic Vale Rules installer. It
-installs Vale when needed and configures the Elastic rules. Use
-`--with-docs-builder` to run the maintained docs-builder installer. Both flags
-are explicit because the upstream installers can install system tools and may
-ask before replacing existing local configuration.
+For a complete first-time setup, use `--with-docs-tools`. It runs the
+maintained installers for Vale, Elastic Vale rules, and docs-builder:
+
+```bash
+elastic-docs-utils install --with-docs-tools
+```
+
+Use `--with-vale` or `--with-docs-builder` when you want only one part of the
+toolchain. These flags are explicit because the upstream installers can install
+system tools and may ask before replacing existing local configuration.
+
+To re-run the selected installers without their replacement prompts, pair the
+option with `--force`:
+
+```bash
+elastic-docs-utils install --with-docs-tools --force
+```
+
+This confirms replacement of an existing non-Elastic Vale configuration and
+overwrites an existing docs-builder binary. Vale itself remains managed by its
+platform package manager when it is already installed; the Vale installer does
+not forcibly replace that executable.
 
 See the [command and managed-locations reference](docs/reference.md) for
 `--verbose`, configuration paths, and optional-tool locations.
