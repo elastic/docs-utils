@@ -14,8 +14,10 @@
 package adapters
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +65,30 @@ func TestValidateListOutput(t *testing.T) {
 	}
 	if err := validateListOutput("elastic-docs connected", true); err == nil {
 		t.Fatal("missing internal server was accepted")
+	}
+}
+
+func TestWriteClaudeHookUsesAndUpgradesAbsoluteCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	legacy := "elastic-docs-utils --color=never hook session-start --host claude"
+	if err := os.WriteFile(path, []byte(`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"`+legacy+`"}]}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := "'/Applications/Elastic Docs Utils/elastic-docs-utils' --color=never hook session-start --host claude"
+	if err := writeClaudeHook(path, command); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), command) || strings.Contains(string(data), `"command": "elastic-docs-utils`) {
+		t.Fatalf("hook was not upgraded: %s", data)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	if got := shellQuote("/Users/Ada's Tools/elastic-docs-utils"); got != "'/Users/Ada'\\''s Tools/elastic-docs-utils'" {
+		t.Fatalf("quoted command = %q", got)
 	}
 }

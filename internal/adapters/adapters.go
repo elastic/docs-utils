@@ -201,7 +201,11 @@ func addClaude(internal, dryRun bool) ([]string, error) {
 	if dryRun {
 		return []string{filepath.Join(home, ".claude.json"), path}, nil
 	}
-	if err := writeClaudeHook(path); err != nil {
+	command, err := claudeHookCommand()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeClaudeHook(path, command); err != nil {
 		return nil, err
 	}
 	return []string{filepath.Join(home, ".claude.json"), path}, nil
@@ -355,13 +359,28 @@ func claudeHookPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
-func writeClaudeHook(path string) error {
+func claudeHookCommand() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate Elastic Docs Utils executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	return shellQuote(executable) + " --color=never hook session-start --host claude", nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func writeClaudeHook(path, command string) error {
 	root, err := readObject(path)
 	if err != nil {
 		return err
 	}
 	hooks := object(root, "hooks")
-	const command = "elastic-docs-utils --color=never hook session-start --host claude"
+	changed := false
 	if existing, ok := hooks["SessionStart"].([]any); ok {
 		for _, item := range existing {
 			group, ok := item.(map[string]any)
@@ -370,11 +389,28 @@ func writeClaudeHook(path string) error {
 			}
 			hookItems, _ := group["hooks"].([]any)
 			for _, hook := range hookItems {
-				if entry, ok := hook.(map[string]any); ok && entry["command"] == command {
+				entry, ok := hook.(map[string]any)
+				if !ok {
+					continue
+				}
+				existingCommand, _ := entry["command"].(string)
+				if existingCommand == command {
 					return nil
 				}
+				if isDocsUtilsClaudeHook(existingCommand) {
+					entry["command"] = command
+					changed = true
+					break
+				}
+			}
+			if changed {
+				break
 			}
 		}
+	}
+	if changed {
+		root["hooks"] = hooks
+		return writeObject(path, root)
 	}
 	entry := map[string]any{"type": "command", "command": command}
 	group := map[string]any{"hooks": []any{entry}}
@@ -382,6 +418,10 @@ func writeClaudeHook(path string) error {
 	hooks["SessionStart"] = append(current, group)
 	root["hooks"] = hooks
 	return writeObject(path, root)
+}
+
+func isDocsUtilsClaudeHook(command string) bool {
+	return strings.Contains(command, "elastic-docs-utils") && strings.Contains(command, "hook session-start --host claude")
 }
 
 func readObject(path string) (map[string]any, error) {
