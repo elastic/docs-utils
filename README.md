@@ -1,62 +1,72 @@
-# Elastic Docs Harness
+# Elastic Docs Utils
 
-Turnkey Claude Code environment for Elastic documentation contributors.
+Elastic Docs Utils configures a consistent documentation-authoring environment
+for Claude Code, Codex, Cursor CLI, and OpenCode.
 
-One command configures:
-- **MCP servers** — Elastic Docs (public) and Elastic Internal Docs
-- **Skill catalogs** — `elastic-docs-skills` and `elastic-docs-skills-internal`
-- **Provider toggle** — switch between in-house Claude and the Elastic LiteLLM gateway
-- **Soft skill dispatch** — context-aware skill suggestions on docs edits and prompts
-- **Update checks** — quiet session-start notices when docs-builder, Vale, or skills are behind
+It installs Elastic documentation skills into the shared `~/.agents/skills`
+location, exposes them to hosts that need a discovery link, and configures the
+public Elastic Docs MCP server. Elastic employees can opt into the internal
+catalog and MCP server.
 
 ## Install
 
 ```bash
-curl -sSL https://github.com/elastic/docs-harness/releases/latest/download/install.sh | bash
+curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash
 ```
 
 Windows (PowerShell):
+
 ```powershell
-irm https://github.com/elastic/docs-harness/releases/latest/download/install.ps1 | iex
+irm https://github.com/elastic/docs-utils/releases/latest/download/install.ps1 | iex
 ```
 
-Restart Claude Code after installation.
+The installer detects available hosts. To choose explicitly:
 
-## What it does
-
-The installer:
-1. Checks that Claude Code CLI is installed (offers to install it via `npm` if not)
-2. Registers the `elastic-docs-skills`, `elastic-docs-skills-internal`, and `docs-harness` Claude Code marketplaces
-3. Installs all three plugins user-scoped
-4. Adds the two Elastic Docs MCP servers to `~/.claude.json`
-5. Configures your preferred API provider (in-house Claude or LiteLLM gateway)
-6. Adds OTel resource-attribute tagging (`team=docs`) to the existing org pipeline
-7. Extracts the hook scripts and registers them in `~/.claude/settings.json`
-8. Checks `docs-builder` and `vale` versions against latest releases
-
-## Commands (inside Claude Code)
-
-| Command | Description |
-|---|---|
-| `/docs-setup` | Full interactive (re)configuration |
-| `/docs-config [provider\|dispatch\|catalogs\|telemetry]` | Quick toggles |
-| `/docs-update` | Check and apply tool + skill updates |
-
-## Options
-
+```bash
+elastic-docs-utils install --host claude,codex,cursor --internal
 ```
-docs-harness [options]
 
-  --provider claude|litellm   API provider (default: prompted)
-  --gateway-url URL           LiteLLM gateway base URL
-  --catalogs public|both      Skill catalogs (default: both)
-  --no-telemetry              Disable OTel resource-attribute tagging
-  --yes                       Non-interactive, accept all defaults
-  --dry-run                   Show what would be done without making changes
-  --force                     Overwrite existing MCP entries
-  --version                   Print version
+## Commands
+
+```text
+elastic-docs-utils install [--host <hosts>] [--internal] [--yes] [--dry-run]
+elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force]
+elastic-docs-utils status [--json|--quiet]
+elastic-docs-utils check-updates [--json]
+elastic-docs-utils update [--component skills] [--dry-run]
+elastic-docs-utils doctor [--json]
+elastic-docs-utils uninstall [--purge] [--dry-run]
 ```
+
+Automatic session notices only read the cached update result; they never make
+network requests or modify tools. Run `check-updates` to refresh the cache and
+`update --component skills` to refresh managed skills explicitly.
+
+Every non-dry-run `install` and `update` also refreshes the status of
+docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic
+Docs Utils.
+
+## What it manages
+
+- Canonical skills at `~/.agents/skills`; Claude Code and Cursor receive links
+  when required for discovery.
+- Native MCP entries for Claude Code, Codex, Cursor CLI, and OpenCode.
+- A small, private configuration and update cache under the OS config/cache
+  directories in the `elastic/docs-utils` namespace.
+
+Existing valid Elastic Docs MCP entries (including the established CloudFront
+endpoint) and skill directories not created by Elastic Docs Utils are left
+untouched. Use `--force` only when you want to replace a genuinely conflicting
+Elastic Docs MCP entry with the canonical configuration. The installer also
+removes only the retired `docs-harness` hook entries, leaving other Claude
+settings alone.
+
+## Add a harness adapter
+
+Support for another harness belongs in a focused adapter. See
+[CONTRIBUTING.md](CONTRIBUTING.md#adding-a-harness-adapter) for the required
+discovery, safe configuration, validation, tests, and documentation steps.
 
 ## License
 
-Apache 2.0 — see [LICENSE.txt](LICENSE.txt).
+Apache-2.0 — see [LICENSE.txt](LICENSE.txt).

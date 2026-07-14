@@ -1,0 +1,67 @@
+// Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
+// or more contributor license agreements. Licensed under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except in compliance
+// with the License. You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+// License for the specific language governing permissions and limitations
+// under the License.
+
+package adapters
+
+import (
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+func TestMergeServerRequiresForceForConflict(t *testing.T) {
+	servers := map[string]any{"elastic-docs": map[string]any{"url": "https://old.example"}}
+	wanted := map[string]any{"url": "https://new.example"}
+	if err := mergeServer(servers, "elastic-docs", wanted, false); err == nil {
+		t.Fatal("conflicting server was accepted without force")
+	}
+	if err := mergeServer(servers, "elastic-docs", wanted, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := servers["elastic-docs"].(map[string]any)["url"]; got != "https://new.example" {
+		t.Fatalf("URL = %q, want replacement", got)
+	}
+}
+
+func TestMergeServerPreservesValidLegacyElasticDocsEndpoint(t *testing.T) {
+	servers := map[string]any{"elastic-docs": map[string]any{"url": legacyPublicMCP, "headers": map[string]any{}}}
+	wanted := map[string]any{"url": publicMCP}
+	if err := mergeServer(servers, "elastic-docs", wanted, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := servers["elastic-docs"].(map[string]any)["url"]; got != legacyPublicMCP {
+		t.Fatalf("URL = %q, want existing valid endpoint retained", got)
+	}
+}
+
+func TestOpenCodeConfigPath(t *testing.T) {
+	path, err := openCodeConfigPath("/example/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		want := filepath.Join("/example/home", ".config", "opencode", "opencode.json")
+		if path != want {
+			t.Fatalf("path = %q, want %q", path, want)
+		}
+	}
+}
+
+func TestValidateListOutput(t *testing.T) {
+	if err := validateListOutput("elastic-docs connected", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateListOutput("elastic-docs connected", true); err == nil {
+		t.Fatal("missing internal server was accepted")
+	}
+}

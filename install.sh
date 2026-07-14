@@ -1,21 +1,31 @@
 #!/usr/bin/env bash
 # Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
-# or more contributor license agreements. Licensed under the Apache License, Version 2.0.
+# or more contributor license agreements. Licensed under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
 #
-# Elastic Docs Harness installer shim.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# Elastic Docs Utils installer shim.
 # Detects platform, downloads the correct binary from GitHub Releases,
 # verifies the checksum, and runs the installer.
 #
 # Usage:
-#   curl -sSL https://github.com/elastic/docs-harness/releases/latest/download/install.sh | bash
-#   curl -sSL https://github.com/elastic/docs-harness/releases/latest/download/install.sh | bash -s -- --yes
+#   curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash
+#   curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash -s -- --yes
 
 set -euo pipefail
 
-REPO="elastic/docs-harness"
+REPO="elastic/docs-utils"
 RELEASES_BASE="https://github.com/${REPO}/releases"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-BINARY_NAME="docs-harness"
+BINARY_NAME="elastic-docs-utils"
 
 # Colors (same conventions as elastic-docs-skills)
 RED='\033[0;31m'
@@ -74,7 +84,7 @@ main() {
   # binaries in bin/ over the network. No Go toolchain required.
 
   # 1. Platform-specific binary in bin/ (populated before going public).
-  local platform_bin="$script_dir/bin/docs-harness_${platform}"
+  local platform_bin="$script_dir/bin/elastic-docs-utils_${platform}"
   if [[ -x "$platform_bin" ]]; then
     info "Using bundled binary: $platform_bin"
     "$platform_bin" "$@"
@@ -82,9 +92,9 @@ main() {
   fi
 
   # 2. Binary built manually next to the script (developer workflow).
-  if [[ -x "$script_dir/docs-harness" ]]; then
-    info "Using local binary: $script_dir/docs-harness"
-    "$script_dir/docs-harness" "$@"
+  if [[ -x "$script_dir/elastic-docs-utils" ]]; then
+    info "Using local binary: $script_dir/elastic-docs-utils"
+    "$script_dir/elastic-docs-utils" "$@"
     return $?
   fi
 
@@ -105,7 +115,7 @@ main() {
 
   # Download to a temp directory.
   local tmpdir
-  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/docs-harness-XXXXXX")"
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/elastic-docs-utils-XXXXXX")"
   trap "rm -rf '$tmpdir'" EXIT
 
   info "Downloading ${archive}..."
@@ -155,7 +165,7 @@ main() {
     install -m 755 "$binary_path" "$install_path"
     warn "Installed to ${install_path} (not in /usr/local/bin — ensure ${INSTALL_DIR} is on your PATH)"
   fi
-  ok "Installed docs-harness ${version} → ${install_path}"
+  ok "Installed Elastic Docs Utils ${version} → ${install_path}"
 
   # Run the installer.
   echo ""

@@ -1,15 +1,25 @@
 # Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
-# or more contributor license agreements. Licensed under the Apache License, Version 2.0.
+# or more contributor license agreements. Licensed under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
 #
-# Elastic Docs Harness installer shim for Windows (PowerShell).
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# Elastic Docs Utils installer shim for Windows (PowerShell).
 # Usage:
-#   irm https://github.com/elastic/docs-harness/releases/latest/download/install.ps1 | iex
+#   irm https://github.com/elastic/docs-utils/releases/latest/download/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
 
-$Repo = "elastic/docs-harness"
-$BinaryName = "docs-harness"
-$InstallDir = "$env:LOCALAPPDATA\docs-harness"
+$Repo = "elastic/docs-utils"
+$BinaryName = "elastic-docs-utils"
+$InstallDir = "$env:LOCALAPPDATA\Elastic\DocsUtils"
 
 function Write-Info  { Write-Host "ℹ $args" -ForegroundColor Cyan }
 function Write-OK    { Write-Host "✓ $args" -ForegroundColor Green }
@@ -60,7 +70,7 @@ try {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     $InstallPath = Join-Path $InstallDir "$BinaryName.exe"
     Copy-Item $BinaryPath $InstallPath -Force
-    Write-OK "Installed docs-harness $Version → $InstallPath"
+    Write-OK "Installed Elastic Docs Utils $Version → $InstallPath"
 
     # Ensure install dir is on PATH.
     $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
