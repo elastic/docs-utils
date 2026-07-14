@@ -449,8 +449,8 @@ func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) e
 	for name, host := range adapterResult.Hosts {
 		s.Hosts[name] = host
 	}
-	for _, name := range skillResult.Installed {
-		s.Skills[name] = skills.Record(name, skills.PublicRepo, nil)
+	for name, record := range skillResult.Records {
+		s.Skills[name] = record
 	}
 	if err := state.Save(s); err != nil {
 		return err

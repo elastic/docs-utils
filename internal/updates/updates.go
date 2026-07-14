@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/elastic/docs-utils/internal/paths"
+	"github.com/elastic/docs-utils/internal/state"
 )
 
 const CacheTTL = 24 * time.Hour
@@ -69,7 +70,7 @@ func Stale(status Status, now time.Time) bool {
 // Refresh performs bounded network checks and atomically persists the result.
 func Refresh(version string) (Status, error) {
 	items := []Item{
-		checkBinary("Elastic Docs Utils", "elastic-docs-utils", version, "Run the installer to update Elastic Docs Utils"),
+		checkElasticDocsUtils(version),
 		checkDocsBuilder(),
 		checkVale(),
 		checkValeRules(),
@@ -101,15 +102,50 @@ func checkValeRules() Item {
 }
 
 func checkSkills() Item {
-	return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
+	current, err := state.Load()
+	if err != nil {
+		return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
+	}
+	latest := githubCommit("elastic", "elastic-docs-skills")
+	return skillStatus(current.Skills, latest)
 }
 
-func checkBinary(name, command, installed, hint string) Item {
-	latest := ""
-	if name == "Elastic Docs Utils" {
-		latest = githubRelease("elastic", "docs-utils")
+func checkElasticDocsUtils(version string) Item {
+	latest := githubRelease("elastic", "docs-utils")
+	if version == "dev" {
+		return Item{Name: "Elastic Docs Utils", Installed: "local build", Latest: latest, State: "local", Hint: "Builds from a checkout are not compared to releases"}
 	}
-	return compare(name, installed, latest, hint)
+	return compare("Elastic Docs Utils", version, latest, "Run the installer to update Elastic Docs Utils")
+}
+
+func skillStatus(records map[string]state.SkillState, latest string) Item {
+	item := Item{Name: "Elastic Docs skills", Installed: "managed", Latest: shortRevision(latest), State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
+	if latest == "" {
+		return item
+	}
+	var installed string
+	for _, record := range records {
+		if record.Source != "https://github.com/elastic/elastic-docs-skills.git" || record.Commit == "" {
+			continue
+		}
+		installed = record.Commit
+		if record.Commit != latest {
+			item.Installed, item.State = shortRevision(record.Commit), "update available"
+			return item
+		}
+	}
+	if installed == "" {
+		return item
+	}
+	item.Installed, item.State = shortRevision(installed), "current"
+	return item
+}
+
+func shortRevision(value string) string {
+	if len(value) > 12 {
+		return value[:12]
+	}
+	return value
 }
 
 func compare(name, installed, latest, hint string) Item {
@@ -156,6 +192,25 @@ func githubRelease(owner, repo string) string {
 		return ""
 	}
 	return parseVersion(payload.TagName)
+}
+
+func githubCommit(owner, repo string) string {
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/main", owner, repo))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var payload struct {
+		SHA string `json:"sha"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&payload) != nil {
+		return ""
+	}
+	return payload.SHA
 }
 
 func valeRulesVersion() string {

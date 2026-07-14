@@ -40,12 +40,13 @@ type marker struct {
 type Result struct {
 	Installed []string
 	Linked    []string
+	Records   map[string]state.SkillState
 }
 
 // Sync fetches enabled catalogs, installs all skills into ~/.agents/skills,
 // then exposes them to hosts that do not discover that location directly.
 func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
-	result := Result{}
+	result := Result{Records: map[string]state.SkillState{}}
 	for _, repo := range repositories(internal) {
 		staging, err := clone(repo, dryRun)
 		if err != nil {
@@ -53,6 +54,11 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 		}
 		if dryRun {
 			continue
+		}
+		commit, err := gitRevision(staging)
+		if err != nil {
+			_ = os.RemoveAll(staging)
+			return result, err
 		}
 		entries, err := findSkills(staging)
 		if err != nil {
@@ -72,6 +78,7 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 				return result, err
 			}
 			result.Installed = append(result.Installed, name)
+			result.Records[name] = state.SkillState{Source: repo, Commit: commit}
 		}
 		if err := os.RemoveAll(staging); err != nil {
 			return result, err
@@ -93,6 +100,14 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func gitRevision(directory string) (string, error) {
+	out, err := exec.Command("git", "-C", directory, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("read skill catalog revision: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func repositories(internal bool) []string {
@@ -294,9 +309,4 @@ func RemoveOwned(names []string, dryRun bool) error {
 		}
 	}
 	return nil
-}
-
-// Record is retained for callers that need a stable public state shape.
-func Record(name, source string, links []string) state.SkillState {
-	return state.SkillState{Source: source, Links: links}
 }

@@ -13,7 +13,11 @@
 
 package updates
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/elastic/docs-utils/internal/state"
+)
 
 func TestSemverGT(t *testing.T) {
 	for _, test := range []struct {
@@ -28,5 +32,25 @@ func TestSemverGT(t *testing.T) {
 		if got := semverGT(test.a, test.b); got != test.want {
 			t.Errorf("semverGT(%q, %q) = %t, want %t", test.a, test.b, got, test.want)
 		}
+	}
+}
+
+func TestElasticDocsUtilsLocalBuild(t *testing.T) {
+	item := checkElasticDocsUtils("dev")
+	if item.State != "local" || item.Installed != "local build" {
+		t.Fatalf("local build item = %#v", item)
+	}
+}
+
+func TestSkillStatus(t *testing.T) {
+	commit := "1234567890abcdef"
+	records := map[string]state.SkillState{
+		"write-docs": {Source: "https://github.com/elastic/elastic-docs-skills.git", Commit: commit},
+	}
+	if item := skillStatus(records, commit); item.State != "current" || item.Installed != "1234567890ab" {
+		t.Fatalf("current skill item = %#v", item)
+	}
+	if item := skillStatus(records, "abcdef1234567890"); item.State != "update available" {
+		t.Fatalf("outdated skill item = %#v", item)
 	}
 }

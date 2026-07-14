@@ -20,6 +20,9 @@ Windows (PowerShell):
 irm https://github.com/elastic/docs-utils/releases/latest/download/install.ps1 | iex
 ```
 
+The installers download the matching release archive, verify its checksum, add
+the binary to a standard user-accessible location, and run initial setup.
+
 The installer detects available hosts. To choose explicitly:
 
 ```bash
@@ -66,6 +69,18 @@ settings alone.
 Support for another harness belongs in a focused adapter. See
 [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-harness-adapter) for the required
 discovery, safe configuration, validation, tests, and documentation steps.
+
+## Release
+
+After merging a clean `main`, create a semantic-version release tag:
+
+```bash
+./scripts/release.sh 2.0.0
+```
+
+The tag triggers the release workflow. It builds macOS, Linux, and Windows
+archives with GoReleaser and uploads `install.sh` and `install.ps1`, enabling
+the curl and PowerShell installation commands above.
 
 ## License
 
