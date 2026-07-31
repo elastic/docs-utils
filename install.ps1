@@ -13,7 +13,7 @@
 #
 # Elastic Docs Utils installer shim for Windows (PowerShell).
 # Usage:
-#   irm https://github.com/elastic/docs-utils/releases/latest/download/install.ps1 | iex
+#   irm https://ela.st/docs-utils-ps | iex
 
 $ErrorActionPreference = 'Stop'
 

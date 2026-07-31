@@ -13,13 +13,13 @@ catalog and MCP server.
 ## Install
 
 ```bash
-curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash
+curl -sSL https://ela.st/docs-utils-sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://github.com/elastic/docs-utils/releases/latest/download/install.ps1 | iex
+irm https://ela.st/docs-utils-ps | iex
 ```
 
 The installers download the matching release archive, verify its checksum, add

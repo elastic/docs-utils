@@ -17,8 +17,8 @@
 # verifies the checksum, and runs the installer.
 #
 # Usage:
-#   curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash
-#   curl -sSL https://github.com/elastic/docs-utils/releases/latest/download/install.sh | bash -s -- --yes
+#   curl -sSL https://ela.st/docs-utils-sh | bash
+#   curl -sSL https://ela.st/docs-utils-sh | bash -s -- --yes
 
 set -euo pipefail
 
