@@ -317,37 +317,82 @@ func commandCheckUpdates(r *ui.Renderer, args []string) error {
 func commandUpdate(r *ui.Renderer, args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	components := fs.String("component", "skills", "comma-separated components")
+	components := fs.String("component", "all", "comma-separated components: skills, vale, vale-rules, docs-builder, or all")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
+	force := fs.Bool("force", false, "accept replacement prompts from upstream installers")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	selected := strings.Split(*components, ",")
-	for _, component := range selected {
-		if strings.TrimSpace(component) != "skills" {
-			return fmt.Errorf("%s updates are managed by its own installer; use `elastic-docs-utils check-updates` for status", strings.TrimSpace(component))
-		}
+	selected, err := parseUpdateComponents(*components)
+	if err != nil {
+		return err
 	}
 	if *dryRun {
 		r.DryRun()
 	}
-	prefs, err := state.LoadPreferences()
-	if err != nil {
-		return err
-	}
-	ids := make([]hosts.ID, len(prefs.Hosts))
-	for i, host := range prefs.Hosts {
-		ids[i] = hosts.ID(host)
-	}
 	r.Header(Version)
-	if err := synchronize(ids, prefs.Internal, *dryRun, false, r); err != nil {
-		return err
+	if selected.skills {
+		prefs, err := state.LoadPreferences()
+		if err != nil {
+			return err
+		}
+		ids := make([]hosts.ID, len(prefs.Hosts))
+		for i, host := range prefs.Hosts {
+			ids[i] = hosts.ID(host)
+		}
+		if err := synchronize(ids, prefs.Internal, *dryRun, false, r); err != nil {
+			return err
+		}
+	} else {
+		r.Info("Skipping Elastic Docs skills.")
+	}
+	if selected.vale {
+		if err := installOptionalTools(r, true, false, *dryRun, *force); err != nil {
+			return err
+		}
+	} else {
+		r.Info("Skipping Vale and Elastic Vale rules.")
+	}
+	if selected.docsBuilder {
+		if err := installOptionalTools(r, false, true, *dryRun, *force); err != nil {
+			return err
+		}
+	} else {
+		r.Info("Skipping docs-builder.")
 	}
 	if *dryRun {
-		r.Info("Would refresh documentation tool status after synchronization.")
+		r.Info("Would refresh documentation tool status after updates.")
 		return nil
 	}
 	return refreshUpdates(r)
+}
+
+type updateComponents struct {
+	skills      bool
+	vale        bool
+	docsBuilder bool
+}
+
+func parseUpdateComponents(value string) (updateComponents, error) {
+	if strings.TrimSpace(value) == "" {
+		return updateComponents{}, errors.New("component list cannot be empty")
+	}
+	var selected updateComponents
+	for _, raw := range strings.Split(value, ",") {
+		switch component := strings.TrimSpace(raw); component {
+		case "all":
+			selected = updateComponents{skills: true, vale: true, docsBuilder: true}
+		case "skills":
+			selected.skills = true
+		case "vale", "vale-rules":
+			selected.vale = true
+		case "docs-builder":
+			selected.docsBuilder = true
+		default:
+			return updateComponents{}, fmt.Errorf("unknown update component %q; valid components: skills, vale, vale-rules, docs-builder, all", component)
+		}
+	}
+	return selected, nil
 }
 
 func refreshUpdates(r *ui.Renderer) error {
