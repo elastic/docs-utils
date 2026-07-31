@@ -36,14 +36,18 @@ elastic-docs-utils install [--host <hosts>] [--internal] [--with-docs-tools|--wi
 elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force]
 elastic-docs-utils status [--json|--quiet]
 elastic-docs-utils check-updates [--json]
-elastic-docs-utils update [--component skills] [--dry-run]
+elastic-docs-utils update [--component all|skills,vale,vale-rules,docs-builder] [--force] [--dry-run]
 elastic-docs-utils doctor [--json]
 elastic-docs-utils uninstall [--purge] [--dry-run]
 ```
 
 Automatic session notices only read the cached update result; they never make
 network requests or modify tools. Run `check-updates` to refresh the cache and
-`update --component skills` to refresh managed skills explicitly.
+`update` refreshes all updateable components by default. Use
+`--component` with a comma-separated list to select `skills`, `vale`,
+`vale-rules`, or `docs-builder`. Vale and Vale rules use the same maintained
+upstream installer. Use `--force` to accept replacement prompts from those
+installers.
 
 Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic

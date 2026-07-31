@@ -66,3 +66,22 @@ installer. It may install the Vale binary and manages the following locations:
 `install --with-docs-builder` runs the maintained Docs Builder installer. Its
 installation location is chosen by that upstream script and is printed by the
 script while it runs.
+
+## Updates
+
+`update` refreshes all updateable components by default:
+
+```bash
+elastic-docs-utils update
+```
+
+Select specific components with a comma-separated `--component` value:
+
+```bash
+elastic-docs-utils update --component skills,vale-rules,docs-builder
+```
+
+Supported components are `skills`, `vale`, `vale-rules`, and `docs-builder`.
+The `vale` and `vale-rules` selections use the same upstream installer because
+it manages both components together. Add `--force` to accept replacement
+prompts from upstream installers.
