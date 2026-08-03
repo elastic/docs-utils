@@ -14,6 +14,7 @@
 package bootstrap
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,28 @@ func TestExtension(t *testing.T) {
 	if got := extension("bash"); got != ".sh" {
 		t.Fatalf("shell extension = %q", got)
 	}
+}
+
+func TestInstallerInput(t *testing.T) {
+	if got := readAll(t, installerInput(true, false)); got != "y\n" {
+		t.Fatalf("force input = %q, want an accepted prompt", got)
+	}
+	// --yes must not answer a replacement prompt, only avoid blocking on it.
+	if got := readAll(t, installerInput(false, true)); got != "" {
+		t.Fatalf("assume-yes input = %q, want closed input", got)
+	}
+	if installerInput(false, false) != os.Stdin {
+		t.Fatal("interactive input did not use stdin")
+	}
+}
+
+func readAll(t *testing.T, r io.Reader) string {
+	t.Helper()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestSamePath(t *testing.T) {

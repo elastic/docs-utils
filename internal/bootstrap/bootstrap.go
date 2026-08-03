@@ -139,24 +139,26 @@ func copyExecutable(source, target string) error {
 // InstallVale delegates to the official Elastic Vale Rules installer, which
 // installs the Vale binary when necessary and installs the Elastic rule bundle.
 // Force confirms replacement of an existing non-Elastic Vale configuration.
-func InstallVale(force bool) error {
+// AssumeYes keeps the installer from blocking on a prompt it cannot read.
+func InstallVale(force, assumeYes bool) error {
 	name, shell, err := valeScript()
 	if err != nil {
 		return err
 	}
-	return downloadAndRun(valeRulesRaw+name, shell, force)
+	return downloadAndRun(valeRulesRaw+name, shell, force, assumeYes)
 }
 
 // InstallDocsBuilder delegates to the official Docs Builder installer. Force
-// confirms replacement when the installer finds an existing binary.
-func InstallDocsBuilder(force bool) error {
+// confirms replacement when the installer finds an existing binary. AssumeYes
+// keeps the installer from blocking on a prompt it cannot read.
+func InstallDocsBuilder(force, assumeYes bool) error {
 	if runtime.GOOS == "windows" {
-		return downloadAndRun(docsBuilderWindows, "powershell", force)
+		return downloadAndRun(docsBuilderWindows, "powershell", force, assumeYes)
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return fmt.Errorf("docs-builder installation is not supported on %s", runtime.GOOS)
 	}
-	return downloadAndRun(docsBuilderUnix, "sh", force)
+	return downloadAndRun(docsBuilderUnix, "sh", force, assumeYes)
 }
 
 func valeScript() (string, string, error) {
@@ -172,7 +174,7 @@ func valeScript() (string, string, error) {
 	}
 }
 
-func downloadAndRun(url, shell string, force bool) error {
+func downloadAndRun(url, shell string, force, assumeYes bool) error {
 	path, err := download(url, extension(shell))
 	if err != nil {
 		return err
@@ -184,18 +186,28 @@ func downloadAndRun(url, shell string, force bool) error {
 	}
 	cmd := exec.Command(command, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if force {
-		// The maintained installers ask only before replacing existing local
-		// configuration or binaries. Supplying yes lets --force be safely
-		// non-interactive without exposing configuration contents.
-		cmd.Stdin = strings.NewReader("y\n")
-	} else {
-		cmd.Stdin = os.Stdin
-	}
+	cmd.Stdin = installerInput(force, assumeYes)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run upstream installer: %w", err)
 	}
 	return nil
+}
+
+// installerInput selects the stream the upstream installers read prompts from.
+// The maintained installers ask only before replacing existing local
+// configuration or binaries, so --force answers yes without exposing
+// configuration contents. --yes only guarantees the installer never blocks on
+// a read it cannot satisfy: closed input makes it take its own default, which
+// leaves existing configuration in place.
+func installerInput(force, assumeYes bool) io.Reader {
+	switch {
+	case force:
+		return strings.NewReader("y\n")
+	case assumeYes:
+		return strings.NewReader("")
+	default:
+		return os.Stdin
+	}
 }
 
 func download(url, suffix string) (string, error) {

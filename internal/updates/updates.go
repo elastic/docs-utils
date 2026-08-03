@@ -15,7 +15,9 @@
 package updates
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -30,6 +32,13 @@ import (
 )
 
 const CacheTTL = 24 * time.Hour
+
+// versionProbeTimeout bounds a `--version` call. A tool that starts a server
+// instead of reporting its version must not hang the whole command.
+const versionProbeTimeout = 10 * time.Second
+
+// errRateLimited marks the one lookup failure a user can act on directly.
+var errRateLimited = errors.New("GitHub API rate limit reached")
 
 type Item struct {
 	Name      string `json:"name"`
@@ -85,20 +94,29 @@ func Refresh(version string) (Status, error) {
 
 func checkDocsBuilder() Item {
 	installed := binaryVersion("docs-builder", "--version")
-	latest := githubRelease("elastic", "docs-builder")
-	return compare("docs-builder", installed, latest, "Run `elastic-docs-utils update --component docs-builder`")
+	latest, err := githubRelease("elastic", "docs-builder")
+	return compare("docs-builder", installed, latest, err, hints{
+		missing: "Not installed. Run `elastic-docs-utils install --with-docs-builder`",
+		update:  "Run `elastic-docs-utils update --component docs-builder`",
+	})
 }
 
 func checkVale() Item {
 	installed := binaryVersion("vale", "--version")
-	latest := githubRelease("errata-ai", "vale")
-	return compare("Vale", installed, latest, "Update Vale with your package manager")
+	latest, err := githubRelease("errata-ai", "vale")
+	return compare("Vale", installed, latest, err, hints{
+		missing: "Not installed. Run `elastic-docs-utils install --with-vale`",
+		update:  "Update Vale with your package manager",
+	})
 }
 
 func checkValeRules() Item {
 	installed := valeRulesVersion()
-	latest := githubRelease("elastic", "vale-rules")
-	return compare("Elastic Vale rules", installed, latest, "Run `elastic-docs-utils update --component vale-rules`")
+	latest, err := githubRelease("elastic", "vale-rules")
+	return compare("Elastic Vale rules", installed, latest, err, hints{
+		missing: "Not installed. Run `elastic-docs-utils install --with-vale`",
+		update:  "Run `elastic-docs-utils update --component vale-rules`",
+	})
 }
 
 func checkSkills() Item {
@@ -106,16 +124,22 @@ func checkSkills() Item {
 	if err != nil {
 		return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
 	}
-	latest := githubCommit("elastic", "elastic-docs-skills")
+	latest, lookupErr := githubCommit("elastic", "elastic-docs-skills")
+	if lookupErr != nil {
+		return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: lookupHint(lookupErr)}
+	}
 	return skillStatus(current.Skills, latest)
 }
 
 func checkElasticDocsUtils(version string) Item {
-	latest := githubRelease("elastic", "docs-utils")
+	latest, err := githubRelease("elastic", "docs-utils")
 	if version == "dev" {
 		return Item{Name: "Elastic Docs Utils", Installed: "local build", Latest: latest, State: "local", Hint: "Builds from a checkout are not compared to releases"}
 	}
-	return compare("Elastic Docs Utils", version, latest, "Run the installer to update Elastic Docs Utils")
+	return compare("Elastic Docs Utils", version, latest, err, hints{
+		missing: "Run the installer to install Elastic Docs Utils",
+		update:  "Run the installer to update Elastic Docs Utils",
+	})
 }
 
 func skillStatus(records map[string]state.SkillState, latest string) Item {
@@ -148,19 +172,38 @@ func shortRevision(value string) string {
 	return value
 }
 
-func compare(name, installed, latest, hint string) Item {
-	item := Item{Name: name, Installed: installed, Latest: latest, Hint: hint}
+// hints carry the next step for each actionable state. A component the user
+// never asked for reports the install command rather than the update command,
+// so "not installed" does not read as a failed install.
+type hints struct {
+	missing string
+	update  string
+}
+
+func compare(name, installed, latest string, latestErr error, h hints) Item {
+	item := Item{Name: name, Installed: installed, Latest: latest}
 	switch {
 	case installed == "":
-		item.Installed, item.State = "not installed", "missing"
+		item.Installed, item.State, item.Hint = "not installed", "missing", h.missing
+	case latestErr != nil:
+		item.State, item.Hint = "unknown", lookupHint(latestErr)
 	case latest == "":
-		item.State = "unknown"
+		item.State, item.Hint = "unknown", h.update
 	case semverGT(latest, installed):
-		item.State = "update available"
+		item.State, item.Hint = "update available", h.update
 	default:
 		item.State = "current"
 	}
 	return item
+}
+
+// lookupHint separates "we could not ask GitHub" from "the tool is missing",
+// which otherwise both surface as an unexplained unknown.
+func lookupHint(err error) string {
+	if errors.Is(err, errRateLimited) {
+		return "GitHub API rate limit reached; set GITHUB_TOKEN or retry later"
+	}
+	return "Could not reach GitHub to determine the latest version"
 }
 
 func binaryVersion(command string, args ...string) string {
@@ -168,49 +211,78 @@ func binaryVersion(command string, args ...string) string {
 	if err != nil {
 		return ""
 	}
-	out, err := exec.Command(path, args...).Output()
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
+	defer cancel()
+	// Some tools report their version on stderr, and others interleave startup
+	// logging with it, so parse the combined stream and tolerate a non-zero
+	// exit as long as the tool printed something.
+	out, err := exec.CommandContext(ctx, path, args...).CombinedOutput()
+	if err != nil && len(out) == 0 {
 		return ""
 	}
 	return parseVersion(string(out))
 }
 
-func githubRelease(owner, repo string) string {
-	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo))
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
+func githubRelease(owner, repo string) (string, error) {
 	var payload struct {
 		TagName string `json:"tag_name"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&payload) != nil {
-		return ""
+	if err := githubJSON(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo), &payload); err != nil {
+		return "", err
 	}
-	return parseVersion(payload.TagName)
+	return parseVersion(payload.TagName), nil
 }
 
-func githubCommit(owner, repo string) string {
-	client := http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/main", owner, repo))
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
+func githubCommit(owner, repo string) (string, error) {
 	var payload struct {
 		SHA string `json:"sha"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&payload) != nil {
-		return ""
+	if err := githubJSON(fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/main", owner, repo), &payload); err != nil {
+		return "", err
 	}
-	return payload.SHA
+	return payload.SHA, nil
+}
+
+func githubJSON(url string, payload any) error {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	// A token is optional, but the unauthenticated limit is 60 requests per
+	// hour for the whole machine, which a few checks a day can exhaust.
+	if token := githubToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		if rateLimited(resp) {
+			return errRateLimited
+		}
+		return fmt.Errorf("GitHub API returned %s", resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(payload)
+}
+
+func githubToken() string {
+	for _, name := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func rateLimited(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return false
+	}
+	return resp.Header.Get("X-RateLimit-Remaining") == "0"
 }
 
 func valeRulesVersion() string {
@@ -236,9 +308,21 @@ func valeRulesVersion() string {
 	return ""
 }
 
-var versionRE = regexp.MustCompile(`\d+\.\d+\.\d+`)
+var (
+	versionRE = regexp.MustCompile(`\d+\.\d+\.\d+`)
+	// A line holding only a version, optionally with build metadata, is the
+	// reliable signal when a tool logs before reporting its version.
+	versionLineRE = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)([+-].*)?$`)
+)
 
-func parseVersion(value string) string { return versionRE.FindString(value) }
+func parseVersion(value string) string {
+	for _, line := range strings.Split(value, "\n") {
+		if match := versionLineRE.FindStringSubmatch(strings.TrimSpace(line)); match != nil {
+			return match[1]
+		}
+	}
+	return versionRE.FindString(value)
+}
 
 func semverGT(a, b string) bool {
 	if a == "" || b == "" {

@@ -53,7 +53,13 @@ installers.
 
 Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic
-Docs Utils.
+Docs Utils. Each component that is not current prints its next step. A
+component shown as `not installed` is usually one that was never requested;
+install it with the matching `--with-...` option above.
+
+Version lookups use the unauthenticated GitHub API, which allows 60 requests
+per hour per address. Set `GITHUB_TOKEN` or `GH_TOKEN` to avoid that shared
+limit; without it, exhausted lookups report `unknown` and say so.
 
 For a complete first-time setup, use `--with-docs-tools`. It runs the
 maintained installers for Vale, Elastic Vale rules, and docs-builder:
@@ -77,6 +83,14 @@ This confirms replacement of an existing non-Elastic Vale configuration and
 overwrites an existing docs-builder binary. Vale itself remains managed by its
 platform package manager when it is already installed; the Vale installer does
 not forcibly replace that executable.
+
+Add `--yes` where nothing can answer a prompt, such as CI or a command with no
+terminal attached. It closes the installers' input rather than accepting
+replacement prompts, so existing configuration is left alone.
+
+Because these tools are optional, a failing installer does not abandon the
+rest of the command. Skills and host adapters are still configured, every
+failure is reported, and the command exits non-zero.
 
 See the [command and managed-locations reference](docs/reference.md) for
 `--verbose`, configuration paths, and optional-tool locations.

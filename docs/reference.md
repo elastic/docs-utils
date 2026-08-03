@@ -54,6 +54,16 @@ overwrites docs-builder when it already exists. The upstream Vale installer
 keeps an existing Vale executable package-managed; it refreshes the Elastic
 rules rather than forcibly replacing the executable.
 
+Add `--yes` when no one is available to answer a prompt, such as in CI or when
+a command runs without a terminal. Unlike `--force`, it does not accept
+replacement prompts: it closes the installer's input so the installer takes its
+own default and leaves existing configuration in place.
+
+These tools are optional, so a failing installer does not stop the rest of the
+command. `install` still synchronizes skills and host adapters, `update` still
+processes the remaining components and refreshes status, and both report every
+failure and then exit non-zero.
+
 `install --with-vale` runs the maintained Elastic Vale Rules platform
 installer. It may install the Vale binary and manages the following locations:
 
@@ -85,3 +95,15 @@ Supported components are `skills`, `vale`, `vale-rules`, and `docs-builder`.
 The `vale` and `vale-rules` selections use the same upstream installer because
 it manages both components together. Add `--force` to accept replacement
 prompts from upstream installers.
+
+### Update status
+
+`status` and `check-updates` print a next step beneath any component that is
+not current. A component reported as `not installed` is usually one that was
+never requested, so its next step is the matching `install --with-...` option
+rather than an update command.
+
+Version lookups use the GitHub API, which allows 60 unauthenticated requests
+per hour per address. When that limit is reached, or GitHub is unreachable, the
+affected rows report `unknown` and say why. Set `GITHUB_TOKEN` or `GH_TOKEN` to
+authenticate the lookups and avoid the shared limit.
