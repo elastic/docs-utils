@@ -188,7 +188,7 @@ func compare(name, installed, latest string, latestErr error, h hints) Item {
 	case latestErr != nil:
 		item.State, item.Hint = "unknown", lookupHint(latestErr)
 	case latest == "":
-		item.State, item.Hint = "unknown", h.update
+		item.State = "unknown"
 	case semverGT(latest, installed):
 		item.State, item.Hint = "update available", h.update
 	default:
@@ -204,6 +204,7 @@ func lookupHint(err error) string {
 		return "GitHub API rate limit reached; set GITHUB_TOKEN or retry later"
 	}
 	return "Could not query GitHub to determine the latest version"
+}
 
 func binaryVersion(command string, args ...string) string {
 	path, err := exec.LookPath(command)
