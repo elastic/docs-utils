@@ -132,7 +132,6 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	_ = yes
 	r.Header(Version)
 	if *dryRun {
 		r.DryRun()
@@ -154,9 +153,12 @@ func commandInstall(r *ui.Renderer, args []string) error {
 		rows = append(rows, []string{string(id), "selected"})
 	}
 	r.Table([]string{"HOST", "STATUS"}, rows)
-	if err := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun, *force); err != nil {
-		return err
-	}
+	// Vale and docs-builder are optional, and their installers touch system
+	// locations that can fail for reasons unrelated to this setup. Report the
+	// failure but still configure skills and host adapters, which are the
+	// point of the command.
+	toolFailures := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun, *force, *yes)
+	reportToolFailures(r, toolFailures)
 
 	if err := synchronize(ids, *internal, *dryRun, *force, r); err != nil {
 		return err
@@ -178,11 +180,17 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	if *force {
 		r.Warn("Replacing conflicting managed MCP entries with the Elastic Docs Utils configuration.")
 	}
+	if len(toolFailures) > 0 {
+		return toolFailureError(toolFailures)
+	}
 	r.Success("Elastic Docs Utils is configured.")
 	return nil
 }
 
-func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force bool) error {
+// installOptionalTools runs the selected upstream installers and returns every
+// failure instead of stopping at the first one, so one broken installer cannot
+// hide the state of the other.
+func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force, assumeYes bool) []error {
 	if !vale && !docsBuilder {
 		return nil
 	}
@@ -196,21 +204,35 @@ func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force bool)
 		}
 		return nil
 	}
+	var failures []error
 	if vale {
 		r.Info("Installing Vale and Elastic Vale rules%s.", forced(force))
 		r.Verbose("Runs the upstream Elastic Vale Rules installer; it reports the Vale binary, configuration, and rule paths it edits.")
-		if err := bootstrap.InstallVale(force); err != nil {
-			return fmt.Errorf("install Vale and Elastic Vale rules: %w", err)
+		if err := bootstrap.InstallVale(force, assumeYes); err != nil {
+			failures = append(failures, fmt.Errorf("install Vale and Elastic Vale rules: %w", err))
 		}
 	}
 	if docsBuilder {
 		r.Info("Installing docs-builder%s.", forced(force))
 		r.Verbose("Runs the upstream docs-builder installer; it reports the binary path it edits.")
-		if err := bootstrap.InstallDocsBuilder(force); err != nil {
-			return fmt.Errorf("install docs-builder: %w", err)
+		if err := bootstrap.InstallDocsBuilder(force, assumeYes); err != nil {
+			failures = append(failures, fmt.Errorf("install docs-builder: %w", err))
 		}
 	}
-	return nil
+	return failures
+}
+
+func reportToolFailures(r *ui.Renderer, failures []error) {
+	for _, failure := range failures {
+		r.Warn("%v", failure)
+	}
+	if len(failures) > 0 {
+		r.Warn("Continuing with the rest of the setup. Re-run the installer for the tools above once the cause is resolved.")
+	}
+}
+
+func toolFailureError(failures []error) error {
+	return fmt.Errorf("%d optional documentation tool installer(s) failed: %w", len(failures), errors.Join(failures...))
 }
 
 func forced(force bool) string {
@@ -291,6 +313,7 @@ func commandStatus(r *ui.Renderer, args []string) error {
 			updateRows = append(updateRows, []string{item.Name, item.State})
 		}
 		r.Table([]string{"COMPONENT", "STATUS"}, updateRows)
+		renderUpdateHints(r, cache.Items)
 	}
 	return nil
 }
@@ -346,25 +369,31 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 	} else {
 		r.Info("Skipping Elastic Docs skills.")
 	}
+	// A failed component must not stop the remaining ones, and the refreshed
+	// status below is most useful precisely when something went wrong.
+	var toolFailures []error
 	if selected.vale {
-		if err := installOptionalTools(r, true, false, *dryRun, *force); err != nil {
-			return err
-		}
+		toolFailures = append(toolFailures, installOptionalTools(r, true, false, *dryRun, *force, false)...)
 	} else {
 		r.Info("Skipping Vale and Elastic Vale rules.")
 	}
 	if selected.docsBuilder {
-		if err := installOptionalTools(r, false, true, *dryRun, *force); err != nil {
-			return err
-		}
+		toolFailures = append(toolFailures, installOptionalTools(r, false, true, *dryRun, *force, false)...)
 	} else {
 		r.Info("Skipping docs-builder.")
 	}
+	reportToolFailures(r, toolFailures)
 	if *dryRun {
 		r.Info("Would refresh documentation tool status after updates.")
 		return nil
 	}
-	return refreshUpdates(r)
+	if err := refreshUpdates(r); err != nil {
+		return err
+	}
+	if len(toolFailures) > 0 {
+		return toolFailureError(toolFailures)
+	}
+	return nil
 }
 
 type updateComponents struct {
@@ -411,6 +440,17 @@ func renderUpdateStatus(r *ui.Renderer, status updates.Status) {
 		rows = append(rows, []string{item.Name, item.Installed, item.Latest, item.State})
 	}
 	r.Table([]string{"COMPONENT", "INSTALLED", "LATEST", "STATUS"}, rows)
+	renderUpdateHints(r, status.Items)
+}
+
+// renderUpdateHints prints the next step for each row that is not current. A
+// status of "missing" or "unknown" is not actionable on its own.
+func renderUpdateHints(r *ui.Renderer, items []updates.Item) {
+	for _, item := range items {
+		if item.Hint != "" && item.State != "current" && item.State != "local" {
+			r.Info("%s: %s", item.Name, item.Hint)
+		}
+	}
 }
 
 func commandDoctor(r *ui.Renderer, args []string) error {
