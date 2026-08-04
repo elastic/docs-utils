@@ -203,8 +203,7 @@ func lookupHint(err error) string {
 	if errors.Is(err, errRateLimited) {
 		return "GitHub API rate limit reached; set GITHUB_TOKEN or retry later"
 	}
-	return "Could not reach GitHub to determine the latest version"
-}
+	return "Could not query GitHub to determine the latest version"
 
 func binaryVersion(command string, args ...string) string {
 	path, err := exec.LookPath(command)
