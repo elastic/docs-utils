@@ -132,10 +132,11 @@ func checkSkills() Item {
 }
 
 func checkElasticDocsUtils(version string) Item {
-	latest, err := githubRelease("elastic", "docs-utils")
 	if version == "dev" {
+		latest, _ := githubRelease("elastic", "docs-utils")
 		return Item{Name: "Elastic Docs Utils", Installed: "local build", Latest: latest, State: "local", Hint: "Builds from a checkout are not compared to releases"}
 	}
+	latest, err := githubRelease("elastic", "docs-utils")
 	return compare("Elastic Docs Utils", version, latest, err, hints{
 		missing: "Run the installer to install Elastic Docs Utils",
 		update:  "Run the installer to update Elastic Docs Utils",
@@ -188,7 +189,7 @@ func compare(name, installed, latest string, latestErr error, h hints) Item {
 	case latestErr != nil:
 		item.State, item.Hint = "unknown", lookupHint(latestErr)
 	case latest == "":
-		item.State = "unknown"
+		item.State, item.Hint = "unknown", "Could not determine the latest version from GitHub"
 	case semverGT(latest, installed):
 		item.State, item.Hint = "update available", h.update
 	default:
@@ -217,8 +218,10 @@ func binaryVersion(command string, args ...string) string {
 	// logging with it, so parse the combined stream and tolerate a non-zero
 	// exit as long as the tool printed something.
 	out, err := exec.CommandContext(ctx, path, args...).CombinedOutput()
-	if err != nil && len(out) == 0 {
-		return ""
+	if err != nil {
+		if len(out) == 0 || ctx.Err() != nil {
+			return ""
+		}
 	}
 	return parseVersion(string(out))
 }
@@ -279,7 +282,11 @@ func githubToken() string {
 }
 
 func rateLimited(resp *http.Response) bool {
-	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+	// 429 from the secondary rate limit may not carry X-RateLimit-Remaining.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+	if resp.StatusCode != http.StatusForbidden {
 		return false
 	}
 	return resp.Header.Get("X-RateLimit-Remaining") == "0"

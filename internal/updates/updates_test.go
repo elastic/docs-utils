@@ -120,6 +120,25 @@ func TestRateLimited(t *testing.T) {
 	}
 }
 
+func TestRateLimitedTreats429AsRateLimited(t *testing.T) {
+	// GitHub's secondary rate limit returns 429 without X-RateLimit-Remaining.
+	resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}}
+	if !rateLimited(resp) {
+		t.Fatal("429 without X-RateLimit-Remaining was not detected as rate limited")
+	}
+}
+
+func TestCompareHintWhenLatestUnparseable(t *testing.T) {
+	h := hints{missing: "install it", update: "update it"}
+	item := compare("tool", "1.0.0", "", nil, h)
+	if item.State != "unknown" {
+		t.Fatalf("state = %q, want unknown", item.State)
+	}
+	if item.Hint == "" {
+		t.Fatalf("hint is empty; want an explanation for the unknown state")
+	}
+}
+
 func TestGithubJSONSendsToken(t *testing.T) {
 	var authorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
