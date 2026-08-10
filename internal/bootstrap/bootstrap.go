@@ -16,6 +16,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -143,9 +144,9 @@ func copyExecutable(source, target string) error {
 func SelfUpdate(force, assumeYes bool) error {
 	switch runtime.GOOS {
 	case "darwin", "linux":
-		return downloadAndRun(selfInstallerUnix, "sh", force, assumeYes)
+		return downloadAndRun(selfInstallerUnix, "sh", force, assumeYes, true)
 	case "windows":
-		return downloadAndRun(selfInstallerWin, "powershell", force, assumeYes)
+		return downloadAndRun(selfInstallerWin, "powershell", force, assumeYes, true)
 	default:
 		return fmt.Errorf("self-update is not supported on %s; download the binary from https://github.com/elastic/docs-utils/releases", runtime.GOOS)
 	}
@@ -160,20 +161,22 @@ func InstallVale(force, assumeYes bool) error {
 	if err != nil {
 		return err
 	}
-	return downloadAndRun(valeRulesRaw+name, shell, force, assumeYes)
+	return downloadAndRun(valeRulesRaw+name, shell, force, assumeYes, true)
 }
 
 // InstallDocsBuilder delegates to the official Docs Builder installer. Force
 // confirms replacement when the installer finds an existing binary. AssumeYes
 // keeps the installer from blocking on a prompt it cannot read.
+// The installer is interactive: it asks for permission and may prompt for a
+// root password, so its output is always passed through to the terminal.
 func InstallDocsBuilder(force, assumeYes bool) error {
 	if runtime.GOOS == "windows" {
-		return downloadAndRun(docsBuilderWindows, "powershell", force, assumeYes)
+		return downloadAndRun(docsBuilderWindows, "powershell", force, assumeYes, false)
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return fmt.Errorf("docs-builder installation is not supported on %s", runtime.GOOS)
 	}
-	return downloadAndRun(docsBuilderUnix, "sh", force, assumeYes)
+	return downloadAndRun(docsBuilderUnix, "sh", force, assumeYes, false)
 }
 
 func valeScript() (string, string, error) {
@@ -189,7 +192,11 @@ func valeScript() (string, string, error) {
 	}
 }
 
-func downloadAndRun(url, shell string, force, assumeYes bool) error {
+// downloadAndRun fetches a script from url and executes it with shell.
+// When quiet is true, stdout and stderr are captured and only surfaced on
+// failure; when false (interactive installers such as docs-builder), they
+// pass through to the terminal so the user can respond to prompts.
+func downloadAndRun(url, shell string, force, assumeYes, quiet bool) error {
 	path, err := download(url, extension(shell))
 	if err != nil {
 		return err
@@ -200,9 +207,19 @@ func downloadAndRun(url, shell string, force, assumeYes bool) error {
 		return err
 	}
 	cmd := exec.Command(command, args...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Stdin = installerInput(force, assumeYes)
+	var out bytes.Buffer
+	if quiet {
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
+		if quiet && out.Len() > 0 {
+			return fmt.Errorf("run upstream installer: %w\n%s", err, out.String())
+		}
 		return fmt.Errorf("run upstream installer: %w", err)
 	}
 	return nil
