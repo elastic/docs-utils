@@ -164,7 +164,7 @@ func checkElasticDocsUtils(version string) Item {
 	latest, err := githubRelease("elastic", "docs-utils")
 	return compare("Elastic Docs Utils", version, latest, err, hints{
 		missing: "Run the installer to install Elastic Docs Utils",
-		update:  "Run the installer to update Elastic Docs Utils",
+		update:  "Run `elastic-docs-utils update --component elastic-docs-utils`",
 	})
 }
 

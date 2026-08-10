@@ -341,7 +341,7 @@ func commandCheckUpdates(r *ui.Renderer, args []string) error {
 func commandUpdate(r *ui.Renderer, args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	components := fs.String("component", "all", "comma-separated components: skills, vale, vale-rules, docs-builder, or all")
+	components := fs.String("component", "all", "comma-separated components: elastic-docs-utils, skills, vale, vale-rules, docs-builder, or all")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
 	force := fs.Bool("force", false, "accept replacement prompts from upstream installers")
 	if err := fs.Parse(args); err != nil {
@@ -355,6 +355,18 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 		r.DryRun()
 	}
 	r.Header(Version)
+	if selected.self {
+		if *dryRun {
+			r.Info("Would run the Elastic Docs Utils installer to update the binary.")
+		} else {
+			r.Info("Updating Elastic Docs Utils binary...")
+			if err := bootstrap.SelfUpdate(*force, true); err != nil {
+				r.Warn("Could not self-update: %v", err)
+			}
+		}
+	} else {
+		r.Info("Skipping Elastic Docs Utils binary.")
+	}
 	if selected.skills {
 		prefs, err := state.LoadPreferences()
 		if err != nil {
@@ -398,6 +410,7 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 }
 
 type updateComponents struct {
+	self        bool
 	skills      bool
 	vale        bool
 	docsBuilder bool
@@ -411,7 +424,9 @@ func parseUpdateComponents(value string) (updateComponents, error) {
 	for _, raw := range strings.Split(value, ",") {
 		switch component := strings.TrimSpace(raw); component {
 		case "all":
-			selected = updateComponents{skills: true, vale: true, docsBuilder: true}
+			selected = updateComponents{self: true, skills: true, vale: true, docsBuilder: true}
+		case "elastic-docs-utils":
+			selected.self = true
 		case "skills":
 			selected.skills = true
 		case "vale", "vale-rules":
@@ -419,7 +434,7 @@ func parseUpdateComponents(value string) (updateComponents, error) {
 		case "docs-builder":
 			selected.docsBuilder = true
 		default:
-			return updateComponents{}, fmt.Errorf("unknown update component %q; valid components: skills, vale, vale-rules, docs-builder, all", component)
+			return updateComponents{}, fmt.Errorf("unknown update component %q; valid components: elastic-docs-utils, skills, vale, vale-rules, docs-builder, all", component)
 		}
 	}
 	return selected, nil
