@@ -31,6 +31,8 @@ const (
 	valeRulesRaw       = "https://raw.githubusercontent.com/elastic/vale-rules/main/"
 	docsBuilderUnix    = "https://ela.st/docs-builder-install"
 	docsBuilderWindows = "https://ela.st/docs-builder-install-win"
+	selfInstallerUnix  = "https://ela.st/docs-utils-sh"
+	selfInstallerWin   = "https://ela.st/docs-utils-ps"
 	binaryName         = "elastic-docs-utils"
 )
 
@@ -134,6 +136,19 @@ func copyExecutable(source, target string) error {
 		return err
 	}
 	return os.Rename(temporaryPath, target)
+}
+
+// SelfUpdate downloads and runs the official elastic-docs-utils installer,
+// replacing the running binary in-place. It is a no-op on unsupported platforms.
+func SelfUpdate(force, assumeYes bool) error {
+	switch runtime.GOOS {
+	case "darwin", "linux":
+		return downloadAndRun(selfInstallerUnix, "sh", force, assumeYes)
+	case "windows":
+		return downloadAndRun(selfInstallerWin, "powershell", force, assumeYes)
+	default:
+		return fmt.Errorf("self-update is not supported on %s; download the binary from https://github.com/elastic/docs-utils/releases", runtime.GOOS)
+	}
 }
 
 // InstallVale delegates to the official Elastic Vale Rules installer, which

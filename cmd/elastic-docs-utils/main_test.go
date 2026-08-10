@@ -19,7 +19,7 @@ func TestParseUpdateComponents(t *testing.T) {
 		{
 			name:  "all by default",
 			value: "all",
-			want:  updateComponents{skills: true, vale: true, docsBuilder: true},
+			want:  updateComponents{self: true, skills: true, vale: true, docsBuilder: true},
 		},
 		{
 			name:  "selected components",
