@@ -16,8 +16,46 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
+
+	"github.com/elastic/docs-utils/internal/state"
 )
+
+func TestStale(t *testing.T) {
+	existing := map[string]state.SkillState{
+		"write-docs":   {Source: PublicRepo, Commit: "abc"},
+		"old-skill":    {Source: PublicRepo, Commit: "abc"},
+		"internal-one": {Source: InternalRepo, Commit: "abc"},
+		"user-skill":   {Source: "https://github.com/user/my-skills.git", Commit: "abc"},
+	}
+	current := map[string]state.SkillState{
+		"write-docs":   {Source: PublicRepo, Commit: "def"},
+		"internal-one": {Source: InternalRepo, Commit: "def"},
+	}
+
+	// Public-only sync: old-skill is stale, internal-one is untouched.
+	stale := Stale(current, existing, ActiveRepos(false))
+	sort.Strings(stale)
+	if len(stale) != 1 || stale[0] != "old-skill" {
+		t.Fatalf("public-only stale = %v, want [old-skill]", stale)
+	}
+
+	// Internal sync: old-skill and internal-one's removal would both be caught
+	// if current dropped internal-one — here current still has it, so only old-skill.
+	stale = Stale(current, existing, ActiveRepos(true))
+	sort.Strings(stale)
+	if len(stale) != 1 || stale[0] != "old-skill" {
+		t.Fatalf("internal stale = %v, want [old-skill]", stale)
+	}
+
+	// user-skill is never flagged regardless of active repos.
+	for _, s := range stale {
+		if s == "user-skill" {
+			t.Fatal("user-skill should not be pruned")
+		}
+	}
+}
 
 func TestReplaceDirRefusesUnmanagedSkill(t *testing.T) {
 	root := t.TempDir()
