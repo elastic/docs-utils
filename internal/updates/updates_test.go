@@ -51,10 +51,10 @@ func TestSkillStatus(t *testing.T) {
 	records := map[string]state.SkillState{
 		"write-docs": {Source: "https://github.com/elastic/elastic-docs-skills.git", Commit: commit},
 	}
-	if item := skillStatus(records, commit); item.State != "current" || item.Installed != "1234567890ab" {
+	if item := repoSkillStatus("Elastic Docs skills", publicSkillsSource, records, commit); item.State != "current" || item.Installed != "1234567890ab" {
 		t.Fatalf("current skill item = %#v", item)
 	}
-	if item := skillStatus(records, "abcdef1234567890"); item.State != "update available" {
+	if item := repoSkillStatus("Elastic Docs skills", publicSkillsSource, records, "abcdef1234567890"); item.State != "update available" {
 		t.Fatalf("outdated skill item = %#v", item)
 	}
 }

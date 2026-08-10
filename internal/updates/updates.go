@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/elastic/docs-utils/internal/paths"
@@ -78,12 +79,16 @@ func Stale(status Status, now time.Time) bool {
 
 // Refresh performs bounded network checks and atomically persists the result.
 func Refresh(version string) (Status, error) {
+	current, _ := state.Load()
 	items := []Item{
 		checkElasticDocsUtils(version),
 		checkDocsBuilder(),
 		checkVale(),
 		checkValeRules(),
-		checkSkills(),
+		checkSkills(current),
+	}
+	if item := checkInternalSkills(current); item != nil {
+		items = append(items, *item)
 	}
 	status := Status{CheckedAt: time.Now().UTC(), Items: items}
 	if err := save(status); err != nil {
@@ -119,16 +124,36 @@ func checkValeRules() Item {
 	})
 }
 
-func checkSkills() Item {
-	current, err := state.Load()
-	if err != nil {
-		return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
-	}
+const publicSkillsSource = "https://github.com/elastic/elastic-docs-skills.git"
+const internalSkillsSource = "https://github.com/elastic/elastic-docs-skills-internal.git"
+
+func checkSkills(current state.State) Item {
 	latest, lookupErr := githubCommit("elastic", "elastic-docs-skills")
 	if lookupErr != nil {
 		return Item{Name: "Elastic Docs skills", Installed: "managed", State: "unknown", Hint: lookupHint(lookupErr)}
 	}
-	return skillStatus(current.Skills, latest)
+	return repoSkillStatus("Elastic Docs skills", publicSkillsSource, current.Skills, latest)
+}
+
+// checkInternalSkills returns an update Item for the internal skills repo when
+// the user has enabled internal access AND a gh CLI token is available. It
+// returns nil — without logging — when either condition is absent, so users
+// without Elastic org access see no noise.
+func checkInternalSkills(current state.State) *Item {
+	prefs, err := state.LoadPreferences()
+	if err != nil || !prefs.Internal {
+		return nil
+	}
+	if githubToken() == "" {
+		return nil
+	}
+	latest, err := githubCommit("elastic", "elastic-docs-skills-internal")
+	if err != nil {
+		// 404 / 403 means no repo access — a normal state, not an error to surface.
+		return nil
+	}
+	item := repoSkillStatus("Elastic Docs internal skills", internalSkillsSource, current.Skills, latest)
+	return &item
 }
 
 func checkElasticDocsUtils(version string) Item {
@@ -143,14 +168,14 @@ func checkElasticDocsUtils(version string) Item {
 	})
 }
 
-func skillStatus(records map[string]state.SkillState, latest string) Item {
-	item := Item{Name: "Elastic Docs skills", Installed: "managed", Latest: shortRevision(latest), State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
+func repoSkillStatus(name, source string, records map[string]state.SkillState, latest string) Item {
+	item := Item{Name: name, Installed: "managed", Latest: shortRevision(latest), State: "unknown", Hint: "Run `elastic-docs-utils sync` to refresh skills"}
 	if latest == "" {
 		return item
 	}
 	var installed string
 	for _, record := range records {
-		if record.Source != "https://github.com/elastic/elastic-docs-skills.git" || record.Commit == "" {
+		if record.Source != source || record.Commit == "" {
 			continue
 		}
 		installed = record.Commit
@@ -278,7 +303,33 @@ func githubToken() string {
 			return value
 		}
 	}
-	return ""
+	return ghCLIToken()
+}
+
+// ghCLITokenOnce caches the result of `gh auth token` for the process lifetime
+// to avoid repeated subprocess calls during a single update check.
+var ghCLITokenOnce struct {
+	sync.Once
+	value string
+}
+
+// ghCLIToken returns the token stored by the gh CLI, or an empty string if gh
+// is absent, unauthenticated, or fails for any reason.
+func ghCLIToken() string {
+	ghCLITokenOnce.Do(func() {
+		path, err := exec.LookPath("gh")
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, path, "auth", "token").Output()
+		if err != nil {
+			return
+		}
+		ghCLITokenOnce.value = strings.TrimSpace(string(out))
+	})
+	return ghCLITokenOnce.value
 }
 
 func rateLimited(resp *http.Response) bool {
