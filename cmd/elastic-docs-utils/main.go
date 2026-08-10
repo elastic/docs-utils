@@ -160,7 +160,7 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	toolFailures := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun, *force, *yes)
 	reportToolFailures(r, toolFailures)
 
-	if err := synchronize(ids, *internal, *dryRun, *force, r); err != nil {
+	if err := synchronize(ids, *internal, *dryRun, *force, false, r); err != nil {
 		return err
 	}
 	if !*dryRun {
@@ -248,6 +248,7 @@ func commandSync(r *ui.Renderer, args []string) error {
 	hostList := fs.String("host", "", "comma-separated hosts")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
 	force := fs.Bool("force", false, "replace conflicting MCP entries")
+	prune := fs.Bool("prune", false, "remove skills no longer in the catalog")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -271,7 +272,7 @@ func commandSync(r *ui.Renderer, args []string) error {
 		return errors.New("nothing is installed; run elastic-docs-utils install first")
 	}
 	r.Header(Version)
-	return synchronize(ids, prefs.Internal, *dryRun, *force, r)
+	return synchronize(ids, prefs.Internal, *dryRun, *force, *prune, r)
 }
 
 func commandStatus(r *ui.Renderer, args []string) error {
@@ -363,7 +364,7 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 		for i, host := range prefs.Hosts {
 			ids[i] = hosts.ID(host)
 		}
-		if err := synchronize(ids, prefs.Internal, *dryRun, false, r); err != nil {
+		if err := synchronize(ids, prefs.Internal, *dryRun, false, false, r); err != nil {
 			return err
 		}
 	} else {
@@ -550,7 +551,7 @@ func commandHook(r *ui.Renderer, args []string) error {
 	return nil
 }
 
-func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) error {
+func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Renderer) error {
 	s, err := state.Load()
 	if err != nil {
 		return err
@@ -619,6 +620,18 @@ func synchronize(ids []hosts.ID, internal, dryRun, force bool, r *ui.Renderer) e
 	}
 	for name, record := range skillResult.Records {
 		s.Skills[name] = record
+	}
+	if prune {
+		stale := skills.Stale(skillResult.Records, s.Skills, skills.ActiveRepos(internal))
+		if len(stale) > 0 {
+			if err := skills.RemoveOwned(stale, dryRun); err != nil {
+				return err
+			}
+			for _, name := range stale {
+				delete(s.Skills, name)
+				r.Info("Pruned removed skill: %s", name)
+			}
+		}
 	}
 	if err := state.Save(s); err != nil {
 		return err

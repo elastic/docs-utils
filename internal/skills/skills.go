@@ -115,6 +115,12 @@ func gitRevision(directory string) (string, error) {
 }
 
 func repositories(internal bool) []string {
+	return ActiveRepos(internal)
+}
+
+// ActiveRepos returns the catalog URLs that a sync run covers.
+// Exported so callers can compute the same set when pruning.
+func ActiveRepos(internal bool) []string {
 	repos := []string{PublicRepo}
 	if internal {
 		repos = append(repos, InternalRepo)
@@ -284,6 +290,27 @@ func linkAll(source, target string) ([]string, error) {
 		links = append(links, link)
 	}
 	return links, nil
+}
+
+// Stale returns the names of skills that were installed from one of activeRepos
+// but are no longer present in current (the result of the most recent Sync).
+// Skills from repos not in activeRepos are untouched — e.g. internal skills are
+// left alone when syncing without --internal.
+func Stale(current map[string]state.SkillState, existing map[string]state.SkillState, activeRepos []string) []string {
+	active := make(map[string]bool, len(activeRepos))
+	for _, r := range activeRepos {
+		active[r] = true
+	}
+	var names []string
+	for name, record := range existing {
+		if !active[record.Source] {
+			continue
+		}
+		if _, stillPresent := current[name]; !stillPresent {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // RemoveOwned deletes only skill directories carrying this product's marker.
