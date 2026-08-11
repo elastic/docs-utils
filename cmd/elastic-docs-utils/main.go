@@ -206,18 +206,33 @@ func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force, assu
 	}
 	var failures []error
 	if vale {
-		r.Info("Installing Vale and Elastic Vale rules%s.", forced(force))
 		r.Verbose("Runs the upstream Elastic Vale Rules installer; it reports the Vale binary, configuration, and rule paths it edits.")
-		if err := bootstrap.InstallVale(force, assumeYes); err != nil {
+		progress := r.StartProgress("Installing Vale and Elastic Vale rules%s", forced(force))
+		err := bootstrap.InstallValeWithProgress(force, assumeYes, installerProgress(progress, "Vale and Elastic Vale rules"))
+		progress.Stop()
+		if err != nil {
 			failures = append(failures, fmt.Errorf("install Vale and Elastic Vale rules: %w", err))
+		} else {
+			r.Success("Installed Vale and Elastic Vale rules.")
 		}
 	}
 	if docsBuilder {
-		r.Info("Installing docs-builder%s.", forced(force))
 		r.Verbose("Runs the upstream docs-builder installer; it reports the binary path it edits.")
-		if err := bootstrap.InstallDocsBuilder(force, assumeYes); err != nil {
-			failures = append(failures, fmt.Errorf("install docs-builder: %w", err))
+		progress := r.StartProgress("Preparing docs-builder installer%s", forced(force))
+		callback := func(phase bootstrap.ProgressPhase, completed, total int64) {
+			if phase == bootstrap.ProgressRunning {
+				progress.Stop()
+				r.Info("Running docs-builder installer; follow any prompts.")
+				return
+			}
+			updateDownloadProgress(progress, "docs-builder", completed, total)
 		}
+		if err := bootstrap.InstallDocsBuilderWithProgress(force, assumeYes, callback); err != nil {
+			failures = append(failures, fmt.Errorf("install docs-builder: %w", err))
+		} else {
+			r.Success("Installed docs-builder.")
+		}
+		progress.Stop()
 	}
 	return failures
 }
@@ -240,6 +255,46 @@ func forced(force bool) string {
 		return " (forcing replacement)"
 	}
 	return ""
+}
+
+func countedProgress(progress *ui.Progress) func(current, total int, label string) {
+	if progress == nil {
+		return nil
+	}
+	return func(current, total int, label string) {
+		if total > 0 {
+			progress.Update("[%d/%d] %s", current, total, label)
+			return
+		}
+		progress.Update("%s", label)
+	}
+}
+
+func installerProgress(progress *ui.Progress, component string) bootstrap.ProgressFunc {
+	return func(phase bootstrap.ProgressPhase, completed, total int64) {
+		if phase == bootstrap.ProgressRunning {
+			progress.Update("Running %s installer", component)
+			return
+		}
+		updateDownloadProgress(progress, component, completed, total)
+	}
+}
+
+func updateDownloadProgress(progress *ui.Progress, component string, completed, total int64) {
+	if total > 0 {
+		percent := min(completed*100/total, 100)
+		progress.Update("Downloading %s installer: %d%%", component, percent)
+		return
+	}
+	if completed > 0 {
+		if completed < 1024 {
+			progress.Update("Downloading %s installer: %d bytes received", component, completed)
+		} else {
+			progress.Update("Downloading %s installer: %d KiB received", component, completed/1024)
+		}
+		return
+	}
+	progress.Update("Downloading %s installer", component)
 }
 
 func commandSync(r *ui.Renderer, args []string) error {
@@ -326,14 +381,19 @@ func commandCheckUpdates(r *ui.Renderer, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	status, err := updates.Refresh(Version)
+	var progress *ui.Progress
+	if !*asJSON {
+		r.Header(Version)
+		progress = r.StartProgress("Checking component versions")
+	}
+	status, err := updates.RefreshWithProgress(Version, countedProgress(progress))
+	progress.Stop()
 	if err != nil {
 		return err
 	}
 	if *asJSON {
 		return json.NewEncoder(os.Stdout).Encode(status)
 	}
-	r.Header(Version)
 	renderUpdateStatus(r, status)
 	return nil
 }
@@ -359,9 +419,13 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 		if *dryRun {
 			r.Info("Would run the Elastic Docs Utils installer to update the binary.")
 		} else {
-			r.Info("Updating Elastic Docs Utils binary...")
-			if err := bootstrap.SelfUpdate(*force, true); err != nil {
+			progress := r.StartProgress("Updating Elastic Docs Utils binary")
+			err := bootstrap.SelfUpdateWithProgress(*force, true, installerProgress(progress, "Elastic Docs Utils"))
+			progress.Stop()
+			if err != nil {
 				r.Warn("Could not self-update: %v", err)
+			} else {
+				r.Success("Updated Elastic Docs Utils binary.")
 			}
 		}
 	} else {
@@ -441,7 +505,9 @@ func parseUpdateComponents(value string) (updateComponents, error) {
 }
 
 func refreshUpdates(r *ui.Renderer) error {
-	status, err := updates.Refresh(Version)
+	progress := r.StartProgress("Refreshing component status")
+	status, err := updates.RefreshWithProgress(Version, countedProgress(progress))
+	progress.Stop()
 	if err != nil {
 		return err
 	}
@@ -588,7 +654,12 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 		}
 	}
 	r.Section("Synchronizing shared skills")
-	skillResult, err := skills.Sync(ids, internal, dryRun)
+	var skillProgress *ui.Progress
+	if !dryRun {
+		skillProgress = r.StartProgress("Fetching and installing skill catalogs")
+	}
+	skillResult, err := skills.SyncWithProgress(ids, internal, dryRun, countedProgress(skillProgress))
+	skillProgress.Stop()
 	if err != nil {
 		return err
 	}
@@ -614,7 +685,12 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 	} else if dryRun {
 		r.Verbose("Would install Elastic Docs Utils binary: %s", self.Path)
 	}
-	adapterResult, err := adapters.Sync(ids, internal, dryRun, force, self.Path)
+	var adapterProgress *ui.Progress
+	if !dryRun {
+		adapterProgress = r.StartProgress("Configuring selected host adapters")
+	}
+	adapterResult, err := adapters.SyncWithProgress(ids, internal, dryRun, force, self.Path, countedProgress(adapterProgress))
+	adapterProgress.Stop()
 	if err != nil {
 		return err
 	}

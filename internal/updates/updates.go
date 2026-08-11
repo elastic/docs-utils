@@ -77,24 +77,52 @@ func Stale(status Status, now time.Time) bool {
 	return status.CheckedAt.IsZero() || now.Sub(status.CheckedAt) > CacheTTL
 }
 
+// ProgressFunc reports the item currently being checked. Current is one-based.
+type ProgressFunc func(current, total int, name string)
+
+type updateCheck struct {
+	name string
+	run  func() *Item
+}
+
 // Refresh performs bounded network checks and atomically persists the result.
 func Refresh(version string) (Status, error) {
+	return RefreshWithProgress(version, nil)
+}
+
+// RefreshWithProgress performs the same checks as Refresh and reports each
+// component before its local and network probes begin.
+func RefreshWithProgress(version string, progress ProgressFunc) (Status, error) {
 	current, _ := state.Load()
-	items := []Item{
-		checkElasticDocsUtils(version),
-		checkDocsBuilder(),
-		checkVale(),
-		checkValeRules(),
-		checkSkills(current),
+	checks := []updateCheck{
+		{"Elastic Docs Utils", func() *Item { item := checkElasticDocsUtils(version); return &item }},
+		{"docs-builder", func() *Item { item := checkDocsBuilder(); return &item }},
+		{"Vale", func() *Item { item := checkVale(); return &item }},
+		{"Elastic Vale rules", func() *Item { item := checkValeRules(); return &item }},
+		{"Elastic Docs skills", func() *Item { item := checkSkills(current); return &item }},
 	}
-	if item := checkInternalSkills(current); item != nil {
-		items = append(items, *item)
+	if prefs, err := state.LoadPreferences(); err == nil && prefs.Internal {
+		checks = append(checks, updateCheck{"Elastic Docs internal skills", func() *Item { return checkInternalSkills(current) }})
 	}
+	items := runChecks(checks, progress)
 	status := Status{CheckedAt: time.Now().UTC(), Items: items}
 	if err := save(status); err != nil {
 		return Status{}, err
 	}
 	return status, nil
+}
+
+func runChecks(checks []updateCheck, progress ProgressFunc) []Item {
+	items := make([]Item, 0, len(checks))
+	for index, check := range checks {
+		if progress != nil {
+			progress(index+1, len(checks), check.name)
+		}
+		if item := check.run(); item != nil {
+			items = append(items, *item)
+		}
+	}
+	return items
 }
 
 func checkDocsBuilder() Item {

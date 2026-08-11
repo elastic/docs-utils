@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +82,30 @@ func TestCopyExecutable(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o755 {
 		t.Fatalf("mode = %o, want 755", info.Mode().Perm())
+	}
+}
+
+func TestProgressReaderReportsDownloadedBytes(t *testing.T) {
+	type event struct {
+		phase            ProgressPhase
+		completed, total int64
+	}
+	var events []event
+	reader := &progressReader{
+		reader: strings.NewReader("installer"),
+		total:  9,
+		progress: func(phase ProgressPhase, completed, total int64) {
+			events = append(events, event{phase, completed, total})
+		},
+	}
+	if _, err := io.ReadAll(reader); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 {
+		t.Fatal("download produced no progress events")
+	}
+	last := events[len(events)-1]
+	if last.phase != ProgressDownloading || last.completed != 9 || last.total != 9 {
+		t.Fatalf("last progress event = %#v", last)
 	}
 }

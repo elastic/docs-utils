@@ -13,7 +13,11 @@
 
 package ui
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
 
 func TestWordmarkForWidth(t *testing.T) {
 	if got := wordmarkForWidth(74); got != compactWordmark {
@@ -21,5 +25,30 @@ func TestWordmarkForWidth(t *testing.T) {
 	}
 	if got := wordmarkForWidth(120); got != wordmark {
 		t.Fatal("wide terminal did not receive full wordmark")
+	}
+}
+
+func TestProgressUsesDurableLineForRedirectedOutput(t *testing.T) {
+	var out bytes.Buffer
+	r := New(ColorNever, &out, &out)
+	progress := r.StartProgress("Checking component versions")
+	progress.Update("[1/5] Checking Elastic Docs Utils")
+	progress.Stop()
+	progress.Stop()
+
+	want := "[INFO] Checking component versions...\n[INFO] [1/5] Checking Elastic Docs Utils\n"
+	if got := out.String(); got != want {
+		t.Fatalf("progress output = %q", got)
+	}
+}
+
+func TestProgressClearsInteractiveLine(t *testing.T) {
+	var out bytes.Buffer
+	r := &Renderer{out: &out, err: &out, interactive: true}
+	progress := r.StartProgress("Fetching skills")
+	progress.Stop()
+
+	if got := out.String(); !strings.Contains(got, "[|] Fetching skills") || !strings.HasSuffix(got, "\r\033[2K") {
+		t.Fatalf("interactive progress was not drawn and cleared: %q", got)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/elastic/docs-utils/internal/hosts"
@@ -44,11 +45,25 @@ type Result struct {
 	Files     []string
 }
 
+// ProgressFunc reports the current item within a synchronization phase.
+// Current is one-based; totals can change when a catalog has been fetched and
+// its skill count becomes known.
+type ProgressFunc func(current, total int, label string)
+
 // Sync fetches enabled catalogs, installs all skills into ~/.agents/skills,
 // then exposes them to hosts that do not discover that location directly.
 func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
+	return SyncWithProgress(targets, internal, dryRun, nil)
+}
+
+// SyncWithProgress performs the same synchronization as Sync while reporting
+// catalog fetches, individual skill installations, and host discovery links.
+func SyncWithProgress(targets []hosts.ID, internal, dryRun bool, progress ProgressFunc) (Result, error) {
 	result := Result{Records: map[string]state.SkillState{}}
-	for _, repo := range repositories(internal) {
+	repos := repositories(internal)
+	for repoIndex, repo := range repos {
+		catalog := catalogLabel(repo)
+		reportProgress(progress, repoIndex+1, len(repos), "Fetching "+catalog+" skill catalog")
 		staging, err := clone(repo, dryRun)
 		if err != nil {
 			return result, err
@@ -73,7 +88,14 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 		if err := os.MkdirAll(root, 0o755); err != nil {
 			return result, err
 		}
-		for name, source := range entries {
+		names := make([]string, 0, len(entries))
+		for name := range entries {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for skillIndex, name := range names {
+			reportProgress(progress, skillIndex+1, len(names), "Installing "+catalog+" skill: "+name)
+			source := entries[name]
 			destination := filepath.Join(root, name)
 			if err := replaceDir(source, destination); err != nil {
 				return result, err
@@ -93,7 +115,8 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	for _, id := range targets {
+	for targetIndex, id := range targets {
+		reportProgress(progress, targetIndex+1, len(targets), "Linking skills for "+string(id))
 		for _, target := range linkRoots(id) {
 			links, err := linkAll(root, target)
 			if err != nil {
@@ -104,6 +127,19 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func reportProgress(progress ProgressFunc, current, total int, label string) {
+	if progress != nil {
+		progress(current, total, label)
+	}
+}
+
+func catalogLabel(repo string) string {
+	if repo == InternalRepo {
+		return "internal"
+	}
+	return "public"
 }
 
 func gitRevision(directory string) (string, error) {

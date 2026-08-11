@@ -37,6 +37,20 @@ const (
 	binaryName         = "elastic-docs-utils"
 )
 
+// ProgressPhase identifies the measurable download phase and the opaque
+// upstream-installer phase of a bootstrap operation.
+type ProgressPhase string
+
+const (
+	ProgressDownloading ProgressPhase = "downloading"
+	ProgressRunning     ProgressPhase = "running"
+)
+
+// ProgressFunc reports bytes while downloading an installer script. Total is
+// zero when the server does not provide a content length. The running phase
+// has no numeric total because upstream installers do not expose one.
+type ProgressFunc func(phase ProgressPhase, completed, total int64)
+
 // SelfInstall describes the stable executable location selected for the
 // current binary.
 type SelfInstall struct {
@@ -142,11 +156,16 @@ func copyExecutable(source, target string) error {
 // SelfUpdate downloads and runs the official elastic-docs-utils installer,
 // replacing the running binary in-place. It is a no-op on unsupported platforms.
 func SelfUpdate(force, assumeYes bool) error {
+	return SelfUpdateWithProgress(force, assumeYes, nil)
+}
+
+// SelfUpdateWithProgress runs SelfUpdate with download and execution updates.
+func SelfUpdateWithProgress(force, assumeYes bool, progress ProgressFunc) error {
 	switch runtime.GOOS {
 	case "darwin", "linux":
-		return downloadAndRun(selfInstallerUnix, "sh", force, assumeYes, true)
+		return downloadAndRun(selfInstallerUnix, "sh", force, assumeYes, true, progress)
 	case "windows":
-		return downloadAndRun(selfInstallerWin, "powershell", force, assumeYes, true)
+		return downloadAndRun(selfInstallerWin, "powershell", force, assumeYes, true, progress)
 	default:
 		return fmt.Errorf("self-update is not supported on %s; download the binary from https://github.com/elastic/docs-utils/releases", runtime.GOOS)
 	}
@@ -157,11 +176,16 @@ func SelfUpdate(force, assumeYes bool) error {
 // Force confirms replacement of an existing non-Elastic Vale configuration.
 // AssumeYes keeps the installer from blocking on a prompt it cannot read.
 func InstallVale(force, assumeYes bool) error {
+	return InstallValeWithProgress(force, assumeYes, nil)
+}
+
+// InstallValeWithProgress runs InstallVale with download and execution updates.
+func InstallValeWithProgress(force, assumeYes bool, progress ProgressFunc) error {
 	name, shell, err := valeScript()
 	if err != nil {
 		return err
 	}
-	return downloadAndRun(valeRulesRaw+name, shell, force, assumeYes, true)
+	return downloadAndRun(valeRulesRaw+name, shell, force, assumeYes, true, progress)
 }
 
 // InstallDocsBuilder delegates to the official Docs Builder installer. Force
@@ -170,13 +194,19 @@ func InstallVale(force, assumeYes bool) error {
 // The installer is interactive: it asks for permission and may prompt for a
 // root password, so its output is always passed through to the terminal.
 func InstallDocsBuilder(force, assumeYes bool) error {
+	return InstallDocsBuilderWithProgress(force, assumeYes, nil)
+}
+
+// InstallDocsBuilderWithProgress runs InstallDocsBuilder with download and
+// execution updates. Once execution starts, the upstream output is streamed.
+func InstallDocsBuilderWithProgress(force, assumeYes bool, progress ProgressFunc) error {
 	if runtime.GOOS == "windows" {
-		return downloadAndRun(docsBuilderWindows, "powershell", force, assumeYes, false)
+		return downloadAndRun(docsBuilderWindows, "powershell", force, assumeYes, false, progress)
 	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return fmt.Errorf("docs-builder installation is not supported on %s", runtime.GOOS)
 	}
-	return downloadAndRun(docsBuilderUnix, "sh", force, assumeYes, false)
+	return downloadAndRun(docsBuilderUnix, "sh", force, assumeYes, false, progress)
 }
 
 func valeScript() (string, string, error) {
@@ -196,8 +226,8 @@ func valeScript() (string, string, error) {
 // When quiet is true, stdout and stderr are captured and only surfaced on
 // failure; when false (interactive installers such as docs-builder), they
 // pass through to the terminal so the user can respond to prompts.
-func downloadAndRun(url, shell string, force, assumeYes, quiet bool) error {
-	path, err := download(url, extension(shell))
+func downloadAndRun(url, shell string, force, assumeYes, quiet bool, progress ProgressFunc) error {
+	path, err := download(url, extension(shell), progress)
 	if err != nil {
 		return err
 	}
@@ -216,6 +246,7 @@ func downloadAndRun(url, shell string, force, assumeYes, quiet bool) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
+	reportProgress(progress, ProgressRunning, 0, 0)
 	if err := cmd.Run(); err != nil {
 		if quiet && out.Len() > 0 {
 			return fmt.Errorf("run upstream installer: %w\n%s", err, out.String())
@@ -242,7 +273,7 @@ func installerInput(force, assumeYes bool) io.Reader {
 	}
 }
 
-func download(url, suffix string) (string, error) {
+func download(url, suffix string, progress ProgressFunc) (string, error) {
 	client := http.Client{Timeout: 2 * time.Minute}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -252,12 +283,18 @@ func download(url, suffix string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download installer: %s", resp.Status)
 	}
+	total := resp.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	reportProgress(progress, ProgressDownloading, 0, total)
 	file, err := os.CreateTemp("", "elastic-docs-utils-installer-*"+suffix)
 	if err != nil {
 		return "", err
 	}
 	path := file.Name()
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	reader := &progressReader{reader: resp.Body, total: total, progress: progress}
+	if _, err := io.Copy(file, reader); err != nil {
 		file.Close()
 		os.Remove(path)
 		return "", err
@@ -267,6 +304,28 @@ func download(url, suffix string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+type progressReader struct {
+	reader    io.Reader
+	completed int64
+	total     int64
+	progress  ProgressFunc
+}
+
+func (r *progressReader) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	if n > 0 {
+		r.completed += int64(n)
+		reportProgress(r.progress, ProgressDownloading, r.completed, r.total)
+	}
+	return n, err
+}
+
+func reportProgress(progress ProgressFunc, phase ProgressPhase, completed, total int64) {
+	if progress != nil {
+		progress(phase, completed, total)
+	}
 }
 
 func extension(shell string) string {
