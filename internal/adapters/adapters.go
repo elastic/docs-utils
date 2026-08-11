@@ -104,10 +104,23 @@ func MigrateLegacy(dryRun bool) (bool, error) {
 	return true, writeObject(path, root)
 }
 
+// ProgressFunc reports the host currently being configured. Current is
+// one-based and includes that host's post-write validation.
+type ProgressFunc func(current, total int, label string)
+
 // Sync configures MCP entries in supported hosts.
 func Sync(targets []hosts.ID, internal, dryRun, force bool, executable string) (Result, error) {
+	return SyncWithProgress(targets, internal, dryRun, force, executable, nil)
+}
+
+// SyncWithProgress configures MCP entries and reports each selected host as it
+// begins configuration.
+func SyncWithProgress(targets []hosts.ID, internal, dryRun, force bool, executable string, progress ProgressFunc) (Result, error) {
 	result := Result{Hosts: map[string]state.HostState{}}
-	for _, host := range targets {
+	for index, host := range targets {
+		if progress != nil {
+			progress(index+1, len(targets), "Configuring "+string(host))
+		}
 		var files []string
 		var err error
 		switch host {

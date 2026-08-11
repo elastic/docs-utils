@@ -59,6 +59,26 @@ func TestSkillStatus(t *testing.T) {
 	}
 }
 
+func TestRunChecksReportsEachComponent(t *testing.T) {
+	checks := []updateCheck{
+		{name: "first", run: func() *Item { return &Item{Name: "first"} }},
+		{name: "optional", run: func() *Item { return nil }},
+		{name: "last", run: func() *Item { return &Item{Name: "last"} }},
+	}
+	var got []string
+	items := runChecks(checks, func(current, total int, name string) {
+		got = append(got, fmt.Sprintf("%d/%d %s", current, total, name))
+	})
+
+	want := []string{"1/3 first", "2/3 optional", "3/3 last"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("progress = %v, want %v", got, want)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2 non-nil results", len(items))
+	}
+}
+
 func TestParseVersionPrefersVersionOnlyLine(t *testing.T) {
 	// A tool that logs before reporting its version must not be misread as
 	// whichever version-shaped string appears first in the log.

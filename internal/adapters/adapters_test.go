@@ -14,11 +14,14 @@
 package adapters
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/elastic/docs-utils/internal/hosts"
 )
 
 func TestMergeServerRequiresForceForConflict(t *testing.T) {
@@ -65,6 +68,21 @@ func TestValidateListOutput(t *testing.T) {
 	}
 	if err := validateListOutput("elastic-docs connected", true); err == nil {
 		t.Fatal("missing internal server was accepted")
+	}
+}
+
+func TestSyncReportsHostProgress(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var got []string
+	_, err := SyncWithProgress([]hosts.ID{hosts.Cursor, hosts.OpenCode}, false, true, false, "/tmp/elastic-docs-utils", func(current, total int, label string) {
+		got = append(got, fmt.Sprintf("%d/%d %s", current, total, label))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1/2 Configuring cursor", "2/2 Configuring opencode"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("progress = %v, want %v", got, want)
 	}
 }
 

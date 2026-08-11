@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elastic/docs-utils/internal/bootstrap"
 	"github.com/elastic/docs-utils/internal/ui"
 	"github.com/elastic/docs-utils/internal/updates"
 )
@@ -59,6 +60,22 @@ func TestInstallOptionalToolsSkippedWhenNoneSelected(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("unselected tools produced output: %q", out.String())
+	}
+}
+
+func TestProgressCallbacksRenderCountsAndPercentages(t *testing.T) {
+	var out bytes.Buffer
+	r := ui.New(ui.ColorNever, &out, &out)
+	progress := r.StartProgress("Working")
+	countedProgress(progress)(2, 5, "Checking Vale")
+	updateDownloadProgress(progress, "docs-builder", 25, 100)
+	installerProgress(progress, "docs-builder")(bootstrap.ProgressRunning, 0, 0)
+	progress.Stop()
+
+	for _, want := range []string{"[2/5] Checking Vale", "Downloading docs-builder installer: 25%", "Running docs-builder installer"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("progress output missing %q:\n%s", want, out.String())
+		}
 	}
 }
 

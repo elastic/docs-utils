@@ -19,6 +19,8 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -35,10 +37,23 @@ const (
 // Renderer renders human-readable command output. JSON-producing callers do
 // not use this type.
 type Renderer struct {
-	out     io.Writer
-	err     io.Writer
-	color   bool
-	verbose bool
+	out         io.Writer
+	err         io.Writer
+	color       bool
+	interactive bool
+	verbose     bool
+}
+
+// Progress is a transient activity indicator for work whose duration cannot
+// be measured precisely, such as downloads and external installers.
+type Progress struct {
+	r           *Renderer
+	interactive bool
+	stop        chan struct{}
+	done        chan struct{}
+	stopOnce    sync.Once
+	labelMu     sync.RWMutex
+	label       string
 }
 
 // SetVerbose enables diagnostic file-change output for mutating commands.
@@ -53,7 +68,24 @@ func New(mode ColorMode, out, errOut io.Writer) *Renderer {
 	if errOut == nil {
 		errOut = os.Stderr
 	}
-	return &Renderer{out: out, err: errOut, color: colorEnabled(mode, out)}
+	return &Renderer{
+		out:         out,
+		err:         errOut,
+		color:       colorEnabled(mode, out),
+		interactive: interactiveOutput(out),
+	}
+}
+
+func interactiveOutput(out io.Writer) bool {
+	if os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	f, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func colorEnabled(mode ColorMode, out io.Writer) bool {
@@ -122,6 +154,79 @@ func (r *Renderer) Section(format string, args ...any) {
 
 func (r *Renderer) Info(format string, args ...any) {
 	fmt.Fprintf(r.out, "%s %s\n", r.paint("36;1", "[INFO]"), fmt.Sprintf(format, args...))
+}
+
+// StartProgress shows an animated spinner on terminals until Stop is called.
+// Redirected output receives one durable start line instead, which makes long
+// operations visible in CI logs without emitting cursor-control sequences.
+func (r *Renderer) StartProgress(format string, args ...any) *Progress {
+	label := fmt.Sprintf(format, args...)
+	if !r.interactive {
+		r.Info("%s...", strings.TrimRight(label, "."))
+		return &Progress{r: r, label: label}
+	}
+
+	p := &Progress{r: r, interactive: true, stop: make(chan struct{}), done: make(chan struct{}), label: label}
+	frames := []string{"|", "/", "-", "\\"}
+	p.draw(frames[0])
+	go func() {
+		defer close(p.done)
+		ticker := time.NewTicker(120 * time.Millisecond)
+		defer ticker.Stop()
+		frame := 1
+		for {
+			select {
+			case <-ticker.C:
+				p.draw(frames[frame])
+				frame = (frame + 1) % len(frames)
+			case <-p.stop:
+				return
+			}
+		}
+	}()
+	return p
+}
+
+func (p *Progress) draw(frame string) {
+	p.labelMu.RLock()
+	defer p.labelMu.RUnlock()
+	fmt.Fprintf(p.r.out, "\r\033[2K%s %s", p.r.paint("36;1", "["+frame+"]"), p.label)
+}
+
+// Update changes the current progress detail. Interactive output updates the
+// spinner in place; redirected output receives a durable line for each step.
+func (p *Progress) Update(format string, args ...any) {
+	if p == nil {
+		return
+	}
+	label := fmt.Sprintf(format, args...)
+	p.labelMu.Lock()
+	if p.label == label {
+		p.labelMu.Unlock()
+		return
+	}
+	p.label = label
+	p.labelMu.Unlock()
+	if !p.interactive {
+		p.r.Info("%s", label)
+		return
+	}
+}
+
+// Stop removes an interactive progress line. It is safe to call more than
+// once and is a no-op for redirected output.
+func (p *Progress) Stop() {
+	if p == nil {
+		return
+	}
+	p.stopOnce.Do(func() {
+		if p.stop == nil {
+			return
+		}
+		close(p.stop)
+		<-p.done
+		fmt.Fprint(p.r.out, "\r\033[2K")
+	})
 }
 
 // Verbose describes an owned file or configuration location changed by a
