@@ -34,6 +34,7 @@ const (
 	publicMCP       = "https://www.elastic.co/docs/_mcp/"
 	legacyPublicMCP = "https://d34ipnu52o64md.cloudfront.net/docs/_mcp"
 	internalMCP     = "https://codex.elastic.dev/mcp"
+	publicPlugin    = "elastic-docs-skills"
 )
 
 type Result struct {
@@ -210,6 +211,11 @@ func addClaude(internal, dryRun bool, executable string) ([]string, error) {
 			return nil, err
 		}
 	}
+	if !dryRun {
+		if err := claudePluginInstallOrUpdate(); err != nil {
+			return nil, err
+		}
+	}
 	path := filepath.Join(home, ".claude", "settings.json")
 	if dryRun {
 		return []string{filepath.Join(home, ".claude.json"), path}, nil
@@ -238,6 +244,57 @@ func addCodex(internal, dryRun bool) ([]string, error) {
 		return nil, err
 	}
 	return []string{filepath.Join(home, ".codex", "config.toml")}, nil
+}
+
+// claudePluginInstallOrUpdate installs the public Elastic Docs skills plugin
+// when it is absent, or updates it when it is already present.
+func claudePluginInstallOrUpdate() error {
+	installed, err := claudePluginInstalled(publicPlugin)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	var args []string
+	if installed {
+		args = []string{"plugin", "update", "--scope", "user", publicPlugin}
+	} else {
+		args = []string{"plugin", "install", "--scope", "user", publicPlugin}
+	}
+	out, err := exec.CommandContext(ctx, "claude", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// claudePluginInstalled checks whether the named plugin appears in the output
+// of `claude plugin list --json`. The plugin ID has the form name@marketplace.
+func claudePluginInstalled(name string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "claude", "plugin", "list", "--json").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("claude plugin list: %s", strings.TrimSpace(string(out)))
+	}
+	return parseInstalledPlugins(string(out), name)
+}
+
+// parseInstalledPlugins is the pure parsing step extracted for testing.
+func parseInstalledPlugins(output, name string) (bool, error) {
+	var plugins []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(output), &plugins); err != nil {
+		return false, fmt.Errorf("parse claude plugin list: %w", err)
+	}
+	for _, p := range plugins {
+		pluginName, _, _ := strings.Cut(p.ID, "@")
+		if pluginName == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func runAdd(command string, args ...string) error {

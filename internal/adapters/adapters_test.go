@@ -116,3 +116,24 @@ func TestClaudeHookCommandRequiresExecutable(t *testing.T) {
 		t.Fatal("empty executable was accepted")
 	}
 }
+
+func TestParseInstalledPlugins(t *testing.T) {
+	output := `[{"id":"elastic-docs-skills@elastic-docs-skills","version":"1.0.11","scope":"user","enabled":true},{"id":"other-plugin@some-marketplace","version":"1.0.0","scope":"user","enabled":false}]`
+	found, err := parseInstalledPlugins(output, "elastic-docs-skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("expected elastic-docs-skills to be found")
+	}
+	found, err = parseInstalledPlugins(output, "missing-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("expected missing-plugin to not be found")
+	}
+	if _, err := parseInstalledPlugins("not-json", "any"); err == nil {
+		t.Fatal("invalid JSON was accepted")
+	}
+}
