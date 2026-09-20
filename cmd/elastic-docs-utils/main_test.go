@@ -130,3 +130,31 @@ func TestRenderUpdateStatusShowsHintsForActionableRows(t *testing.T) {
 		t.Fatalf("current component printed a hint:\n%s", out.String())
 	}
 }
+
+// The upstream installers exit 0 whether they install, skip, or are declined,
+// so the reported outcome has to come from the version either side of the run.
+func TestInstallerOutcome(t *testing.T) {
+	cases := []struct {
+		name          string
+		before, after string
+		want          installerOutcomeLevel
+		contains      string
+	}{
+		{"declined leaves version untouched", "1.57.1", "1.57.1", outcomeUnchanged, "left unchanged at 1.57.1"},
+		{"fresh install", "", "1.58.0", outcomeInstalled, "Installed docs-builder 1.58.0"},
+		{"real update", "1.57.1", "1.58.0", outcomeUpdated, "1.57.1 to 1.58.0"},
+		{"binary absent afterwards", "1.57.1", "", outcomeMissing, "no docs-builder binary is on PATH"},
+		{"absent before and after", "", "", outcomeMissing, "no docs-builder binary is on PATH"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			level, msg := installerOutcome("docs-builder", c.before, c.after)
+			if level != c.want {
+				t.Fatalf("level = %v, want %v (msg %q)", level, c.want, msg)
+			}
+			if !strings.Contains(msg, c.contains) {
+				t.Fatalf("message %q does not contain %q", msg, c.contains)
+			}
+		})
+	}
+}

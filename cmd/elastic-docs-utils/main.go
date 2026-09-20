@@ -228,14 +228,53 @@ func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force, assu
 			}
 			updateDownloadProgress(progress, "docs-builder", completed, total)
 		}
+		// The upstream installer exits 0 whether it installs, skips an existing
+		// binary, or is declined at its overwrite prompt, so its exit code alone
+		// cannot tell us what happened. Compare the version either side of it.
+		before := updates.BinaryVersion("docs-builder", "--version")
 		if err := bootstrap.InstallDocsBuilderWithProgress(force, assumeYes, callback); err != nil {
 			failures = append(failures, fmt.Errorf("install docs-builder: %w", err))
 		} else {
-			r.Success("Installed docs-builder.")
+			progress.Stop()
+			level, message := installerOutcome("docs-builder", before, updates.BinaryVersion("docs-builder", "--version"))
+			switch level {
+			case outcomeMissing:
+				r.Warn("%s", message)
+			case outcomeUnchanged:
+				r.Info("%s", message)
+			default:
+				r.Success("%s", message)
+			}
 		}
 		progress.Stop()
 	}
 	return failures
+}
+
+type installerOutcomeLevel int
+
+const (
+	outcomeInstalled installerOutcomeLevel = iota
+	outcomeUpdated
+	outcomeUnchanged
+	outcomeMissing
+)
+
+// installerOutcome decides what an upstream installer actually did, from the
+// tool's reported version either side of the run. The installers exit 0 whether
+// they install, skip an existing binary, or are declined at an overwrite
+// prompt, so a zero exit on its own must not be reported as an install.
+func installerOutcome(tool, before, after string) (installerOutcomeLevel, string) {
+	switch {
+	case after == "":
+		return outcomeMissing, fmt.Sprintf("The %s installer finished, but no %s binary is on PATH.", tool, tool)
+	case before != "" && after == before:
+		return outcomeUnchanged, fmt.Sprintf("%s left unchanged at %s; the installer did not replace it.", tool, after)
+	case before == "":
+		return outcomeInstalled, fmt.Sprintf("Installed %s %s.", tool, after)
+	default:
+		return outcomeUpdated, fmt.Sprintf("Updated %s %s to %s.", tool, before, after)
+	}
 }
 
 func reportToolFailures(r *ui.Renderer, failures []error) {
@@ -452,16 +491,16 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 	// A failed component must not stop the remaining ones, and the refreshed
 	// status below is most useful precisely when something went wrong.
 	var toolFailures []error
-	if selected.vale {
-		toolFailures = append(toolFailures, installOptionalTools(r, true, false, *dryRun, *force, false)...)
-	} else {
+	if !selected.vale {
 		r.Info("Skipping Vale and Elastic Vale rules.")
 	}
-	if selected.docsBuilder {
-		toolFailures = append(toolFailures, installOptionalTools(r, false, true, *dryRun, *force, false)...)
-	} else {
+	if !selected.docsBuilder {
 		r.Info("Skipping docs-builder.")
 	}
+	// One call for both tools: installOptionalTools prints its own section
+	// header, so calling it per tool printed "Installing documentation tools"
+	// twice and read like two separate phases.
+	toolFailures = append(toolFailures, installOptionalTools(r, selected.vale, selected.docsBuilder, *dryRun, *force, false)...)
 	reportToolFailures(r, toolFailures)
 	if *dryRun {
 		r.Info("Would refresh documentation tool status after updates.")

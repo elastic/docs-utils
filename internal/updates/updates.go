@@ -260,6 +260,14 @@ func lookupHint(err error) string {
 	return "Could not query GitHub to determine the latest version"
 }
 
+// BinaryVersion reports the version a locally installed tool prints, or an
+// empty string when the tool is absent or prints nothing usable. Callers use it
+// to confirm that an installer actually changed the binary, because the
+// upstream installers exit 0 whether they install, skip, or are declined.
+func BinaryVersion(command string, args ...string) string {
+	return binaryVersion(command, args...)
+}
+
 func binaryVersion(command string, args ...string) string {
 	path, err := exec.LookPath(command)
 	if err != nil {
