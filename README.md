@@ -34,11 +34,11 @@ elastic-docs-utils install --host claude,codex,cursor --internal
 ## Commands
 
 ```text
-elastic-docs-utils install [--host <hosts>] [--internal] [--with-docs-tools|--with-vale|--with-docs-builder] [--yes] [--dry-run] [--force]
-elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force]
+elastic-docs-utils install [--host <hosts>] [--internal] [--with-docs-tools|--with-vale|--with-docs-builder] [--yes] [--dry-run] [--force] [--no-prune]
+elastic-docs-utils sync [--host <hosts>] [--dry-run] [--force] [--no-prune]
 elastic-docs-utils status [--json|--quiet]
 elastic-docs-utils check-updates [--json]
-elastic-docs-utils update [--component all|skills,vale,vale-rules,docs-builder] [--force] [--dry-run]
+elastic-docs-utils update [--component all|skills,vale,vale-rules,docs-builder] [--force] [--dry-run] [--no-prune]
 elastic-docs-utils doctor [--json]
 elastic-docs-utils uninstall [--purge] [--dry-run]
 ```
@@ -50,6 +50,13 @@ network requests or modify tools. Run `check-updates` to refresh the cache and
 `vale-rules`, or `docs-builder`. Vale and Vale rules use the same maintained
 upstream installer. Use `--force` to accept replacement prompts from those
 installers.
+
+`install`, `sync`, and `update` prune by default: a skill this tool installed
+that has since left the catalog is removed, along with its host symlinks, so a
+skill renamed upstream does not leave a stale copy behind. A skill directory
+without this tool's marker is never deleted — it is reported and left alone, so
+anything you wrote yourself is safe. Pass `--no-prune` to keep stale skills, or
+`--dry-run` to see what a prune would remove first.
 
 Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic

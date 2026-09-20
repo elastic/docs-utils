@@ -129,6 +129,7 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	withVale := fs.Bool("with-vale", false, "install Vale and Elastic Vale rules")
 	withDocsBuilder := fs.Bool("with-docs-builder", false, "install docs-builder")
 	withDocsTools := fs.Bool("with-docs-tools", false, "install Vale, Elastic Vale rules, and docs-builder")
+	noPrune := fs.Bool("no-prune", false, "keep skills that are no longer in the catalog")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -160,7 +161,7 @@ func commandInstall(r *ui.Renderer, args []string) error {
 	toolFailures := installOptionalTools(r, *withVale, *withDocsBuilder, *dryRun, *force, *yes)
 	reportToolFailures(r, toolFailures)
 
-	if err := synchronize(ids, *internal, *dryRun, *force, false, r); err != nil {
+	if err := synchronize(ids, *internal, *dryRun, *force, !*noPrune, r); err != nil {
 		return err
 	}
 	if !*dryRun {
@@ -303,7 +304,8 @@ func commandSync(r *ui.Renderer, args []string) error {
 	hostList := fs.String("host", "", "comma-separated hosts")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
 	force := fs.Bool("force", false, "replace conflicting MCP entries")
-	prune := fs.Bool("prune", false, "remove skills no longer in the catalog")
+	prune := fs.Bool("prune", true, "remove skills this tool installed that are no longer in the catalog")
+	noPrune := fs.Bool("no-prune", false, "keep skills that are no longer in the catalog")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -327,7 +329,7 @@ func commandSync(r *ui.Renderer, args []string) error {
 		return errors.New("nothing is installed; run elastic-docs-utils install first")
 	}
 	r.Header(Version)
-	return synchronize(ids, prefs.Internal, *dryRun, *force, *prune, r)
+	return synchronize(ids, prefs.Internal, *dryRun, *force, *prune && !*noPrune, r)
 }
 
 func commandStatus(r *ui.Renderer, args []string) error {
@@ -404,6 +406,7 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 	components := fs.String("component", "all", "comma-separated components: elastic-docs-utils, skills, vale, vale-rules, docs-builder, or all")
 	dryRun := fs.Bool("dry-run", false, "show planned changes")
 	force := fs.Bool("force", false, "accept replacement prompts from upstream installers")
+	noPrune := fs.Bool("no-prune", false, "keep skills that are no longer in the catalog")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -440,7 +443,7 @@ func commandUpdate(r *ui.Renderer, args []string) error {
 		for i, host := range prefs.Hosts {
 			ids[i] = hosts.ID(host)
 		}
-		if err := synchronize(ids, prefs.Internal, *dryRun, false, false, r); err != nil {
+		if err := synchronize(ids, prefs.Internal, *dryRun, false, !*noPrune, r); err != nil {
 			return err
 		}
 	} else {
@@ -583,8 +586,12 @@ func commandUninstall(r *ui.Renderer, args []string) error {
 	for name := range s.Skills {
 		names = append(names, name)
 	}
-	if err := skills.RemoveOwned(names, *dryRun); err != nil {
+	skipped, err := skills.RemoveOwned(names, *dryRun)
+	if err != nil {
 		return err
+	}
+	for _, name := range skipped {
+		r.Warn("Left %s in place: it was not installed by this tool.", name)
 	}
 	if *dryRun {
 		r.Info("Would remove %d managed skills. Existing MCP configuration is retained for safety.", len(names))
@@ -715,10 +722,20 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 	if prune {
 		stale := skills.Stale(skillResult.Records, s.Skills, skills.ActiveRepos(internal))
 		if len(stale) > 0 {
-			if err := skills.RemoveOwned(stale, dryRun); err != nil {
+			skipped, err := skills.RemoveOwned(stale, dryRun)
+			if err != nil {
 				return err
 			}
+			unmanaged := make(map[string]bool, len(skipped))
+			for _, name := range skipped {
+				unmanaged[name] = true
+				// Keep the state record so the warning repeats until it is resolved.
+				r.Warn("Left %s in place: it is no longer in the catalog but was not installed by this tool. Remove it yourself if you no longer want it.", name)
+			}
 			for _, name := range stale {
+				if unmanaged[name] {
+					continue
+				}
 				delete(s.Skills, name)
 				r.Info("Pruned removed skill: %s", name)
 			}
