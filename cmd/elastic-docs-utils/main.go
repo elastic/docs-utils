@@ -702,6 +702,21 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 	if err != nil {
 		return err
 	}
+	for _, name := range skillResult.Adopted {
+		if dryRun {
+			r.Info("Would adopt and refresh catalog skill: %s", name)
+			continue
+		}
+		r.Info("Adopted and refreshed catalog skill: %s", name)
+	}
+	for _, name := range skillResult.Skipped {
+		if dryRun {
+			r.Warn("Would skip catalog skill %s because an existing directory was not installed by this tool.", name)
+			continue
+		}
+		delete(s.Skills, name)
+		r.Warn("Skipped catalog skill %s because an existing directory was not installed by this tool. The existing directory was left unchanged.", name)
+	}
 	if dryRun {
 		r.Info("Would refresh public%s skills in ~/.agents/skills.", map[bool]string{true: " and internal", false: ""}[internal])
 		if root, err := paths.CanonicalSkillsDir(); err == nil {
@@ -748,7 +763,7 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 		// Pruning is on by default, so a dry run has to show what it would
 		// delete. RemoveOwned writes nothing here; it only classifies.
 		if prune {
-			if err := reportPrune(r, &s, skillResult.Records, internal, true); err != nil {
+			if err := reportPrune(r, &s, skillResult.Catalog, internal, true); err != nil {
 				return err
 			}
 		}
@@ -764,7 +779,7 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 		s.Skills[name] = record
 	}
 	if prune {
-		if err := reportPrune(r, &s, skillResult.Records, internal, false); err != nil {
+		if err := reportPrune(r, &s, skillResult.Catalog, internal, false); err != nil {
 			return err
 		}
 	}

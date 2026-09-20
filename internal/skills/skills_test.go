@@ -15,6 +15,7 @@ package skills
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -73,6 +74,97 @@ func TestReplaceDirRefusesUnmanagedSkill(t *testing.T) {
 	}
 	if err := replaceDir(source, destination); err == nil {
 		t.Fatal("replaceDir accepted an unmanaged directory")
+	}
+}
+
+func TestInstallSkillSkipsUnmanagedCollision(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	destination := filepath.Join(root, "destination")
+	for _, dir := range []string{source, destination} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("catalog"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installed, adopted, err := installSkill(root, source, destination, false)
+	if err != nil {
+		t.Fatalf("installSkill returned an error for an unmanaged collision: %v", err)
+	}
+	if installed {
+		t.Fatal("installSkill reported an unmanaged collision as installed")
+	}
+	if adopted {
+		t.Fatal("installSkill reported an unrelated collision as adopted")
+	}
+	contents, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "local" {
+		t.Fatalf("unmanaged skill contents = %q, want local", contents)
+	}
+}
+
+func TestInstallSkillAdoptsHistoricalCatalogSkill(t *testing.T) {
+	root := t.TempDir()
+	catalog := filepath.Join(root, "catalog")
+	source := filepath.Join(catalog, "skills", "renamed-skill")
+	destination := filepath.Join(root, "destination")
+	for _, dir := range []string{source, destination} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, catalog, "init")
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("historical catalog version"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, catalog, "add", ".")
+	runGit(t, catalog, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "Add skill")
+	if err := copyDir(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("current catalog version"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, catalog, "add", ".")
+	runGit(t, catalog, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "Update skill")
+
+	installed, adopted, err := installSkill(catalog, source, destination, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !installed || !adopted {
+		t.Fatalf("installed, adopted = %t, %t; want true, true", installed, adopted)
+	}
+	contents, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "current catalog version" {
+		t.Fatalf("adopted skill contents = %q, want current catalog version", contents)
+	}
+	owned, err := isOwned(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owned {
+		t.Fatal("adopted skill has no ownership marker")
+	}
+}
+
+func runGit(t *testing.T, directory string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", directory}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 }
 

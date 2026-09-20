@@ -54,9 +54,11 @@ installers.
 `install`, `sync`, and `update` prune by default: a skill this tool installed
 that has since left the catalog is removed, along with its host symlinks, so a
 skill renamed upstream does not leave a stale copy behind. A skill directory
-without this tool's marker is never deleted — it is reported and left alone, so
-anything you wrote yourself is safe. Pass `--no-prune` to keep stale skills, or
-`--dry-run` to see what a prune would remove first.
+without this tool's marker is adopted and refreshed when its `SKILL.md` matches
+any version from the same Elastic skill catalog. Other name collisions are
+reported and skipped while synchronization continues, so unrelated local work
+is safe. Pass `--no-prune` to keep stale skills, or `--dry-run` to see what a
+prune would remove first.
 
 Every non-dry-run `install` and `update` also refreshes the status of
 docs-builder, the Vale binary, Elastic Vale rules, managed skills, and Elastic
