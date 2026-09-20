@@ -728,10 +728,15 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 	if !dryRun {
 		adapterProgress = r.StartProgress("Configuring selected host adapters")
 	}
-	adapterResult, err := adapters.SyncWithProgress(ids, internal, dryRun, force, self.Path, countedProgress(adapterProgress))
+	adapterResult, adapterErr := adapters.SyncWithProgress(ids, internal, dryRun, force, self.Path, countedProgress(adapterProgress))
 	adapterProgress.Stop()
-	if err != nil {
-		return err
+	// A host adapter that fails to configure must not strand the skill work that
+	// already succeeded. Returning here skipped both the state save and the
+	// prune, so one broken adapter silently left stale skills on disk and the
+	// state file describing a sync that did not finish. Report it, finish the
+	// skill side, and surface the failure at the end.
+	if adapterErr != nil {
+		r.Warn("Could not configure host adapters: %v", adapterErr)
 	}
 	if dryRun {
 		for name, host := range adapterResult.Hosts {
@@ -747,7 +752,7 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 				return err
 			}
 		}
-		return nil
+		return adapterErr
 	}
 	for name, host := range adapterResult.Hosts {
 		s.Hosts[name] = host
@@ -774,6 +779,9 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 	}
 	if len(adapterResult.Validated) > 0 {
 		r.Success("Validated MCP configuration for %d host adapters.", len(adapterResult.Validated))
+	}
+	if adapterErr != nil {
+		return adapterErr
 	}
 	r.Success("Synchronized %d host adapters.", len(ids))
 	return nil
