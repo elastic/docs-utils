@@ -236,20 +236,37 @@ func replaceDir(source, destination string) error {
 	return os.RemoveAll(backup)
 }
 
-func ensureOwnedOrMissing(destination string) error {
-	_, err := os.Stat(destination)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
+// isOwned reports whether destination is safe for this tool to replace or
+// delete: either it does not exist, or it carries this product's marker. A
+// directory that exists without the marker returns false with a nil error —
+// that is a normal state, not a failure. Only I/O problems return an error.
+func isOwned(destination string) (bool, error) {
+	if _, err := os.Stat(destination); err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
 	}
 	data, err := os.ReadFile(filepath.Join(destination, markerFile))
 	if err != nil {
-		return fmt.Errorf("refusing to replace unmanaged skill %q", filepath.Base(destination))
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
 	var owned marker
 	if err := json.Unmarshal(data, &owned); err != nil || owned.Product != paths.Product {
+		return false, nil
+	}
+	return true, nil
+}
+
+func ensureOwnedOrMissing(destination string) error {
+	owned, err := isOwned(destination)
+	if err != nil {
+		return err
+	}
+	if !owned {
 		return fmt.Errorf("refusing to replace unmanaged skill %q", filepath.Base(destination))
 	}
 	return nil
@@ -349,16 +366,26 @@ func Stale(current map[string]state.SkillState, existing map[string]state.SkillS
 	return names
 }
 
-// RemoveOwned deletes only skill directories carrying this product's marker.
-func RemoveOwned(names []string, dryRun bool) error {
+// RemoveOwned deletes only skill directories carrying this product's marker,
+// along with the host symlinks pointing at them. A directory without the marker
+// is left untouched and its name is returned in skipped: pruning runs
+// automatically, so an unrecognized directory must never be destroyed on the
+// strength of a state record alone. The error return is reserved for I/O
+// failures.
+func RemoveOwned(names []string, dryRun bool) (skipped []string, err error) {
 	root, err := paths.CanonicalSkillsDir()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, name := range names {
 		destination := filepath.Join(root, name)
-		if err := ensureOwnedOrMissing(destination); err != nil {
-			return err
+		owned, err := isOwned(destination)
+		if err != nil {
+			return nil, err
+		}
+		if !owned {
+			skipped = append(skipped, name)
+			continue
 		}
 		if dryRun {
 			continue
@@ -368,14 +395,14 @@ func RemoveOwned(names []string, dryRun bool) error {
 				link := filepath.Join(linkRoot, name)
 				if info, err := os.Lstat(link); err == nil && info.Mode()&os.ModeSymlink != 0 {
 					if err := os.Remove(link); err != nil {
-						return err
+						return nil, err
 					}
 				}
 			}
 		}
 		if err := os.RemoveAll(destination); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return skipped, nil
 }

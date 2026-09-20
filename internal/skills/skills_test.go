@@ -19,6 +19,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/elastic/docs-utils/internal/paths"
 	"github.com/elastic/docs-utils/internal/state"
 )
 
@@ -100,5 +101,80 @@ func TestReplaceDirUpdatesOwnedSkill(t *testing.T) {
 	}
 	if string(contents) != "new" {
 		t.Fatalf("skill contents = %q, want new", contents)
+	}
+}
+
+// Pruning runs automatically, so a directory this tool did not install must
+// survive it — and must not abort the prune of everything else.
+func TestRemoveOwnedSkipsUnmanagedSkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, err := paths.CanonicalSkillsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := filepath.Join(root, "owned-skill")
+	unmanaged := filepath.Join(root, "hand-written")
+	for _, dir := range []string{owned, unmanaged} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("body"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(owned, markerFile), []byte(`{"product":"`+paths.Product+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	skipped, err := RemoveOwned([]string{"owned-skill", "hand-written"}, false)
+	if err != nil {
+		t.Fatalf("RemoveOwned returned an error for an unmanaged directory: %v", err)
+	}
+	if len(skipped) != 1 || skipped[0] != "hand-written" {
+		t.Fatalf("skipped = %v, want [hand-written]", skipped)
+	}
+	if _, err := os.Stat(owned); !os.IsNotExist(err) {
+		t.Fatal("owned skill was not removed")
+	}
+	if _, err := os.Stat(unmanaged); err != nil {
+		t.Fatal("unmanaged skill was removed")
+	}
+}
+
+// A dry run reports what it would skip without deleting anything.
+func TestRemoveOwnedDryRunDeletesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root, err := paths.CanonicalSkillsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := filepath.Join(root, "owned-skill")
+	if err := os.MkdirAll(owned, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(owned, markerFile), []byte(`{"product":"`+paths.Product+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RemoveOwned([]string{"owned-skill"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(owned); err != nil {
+		t.Fatal("dry run removed the skill")
+	}
+}
+
+// A name with no directory on disk is not an error and is not reported as
+// skipped: the state record is stale and the prune should clear it.
+func TestRemoveOwnedTreatsMissingAsRemovable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	skipped, err := RemoveOwned([]string{"never-installed"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("skipped = %v, want empty", skipped)
 	}
 }
