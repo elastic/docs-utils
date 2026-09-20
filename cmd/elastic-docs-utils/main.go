@@ -217,6 +217,15 @@ func installOptionalTools(r *ui.Renderer, vale, docsBuilder, dryRun, force, assu
 			r.Success("Installed Vale and Elastic Vale rules.")
 		}
 	}
+	// Running an upstream installer for a tool that is already current wastes a
+	// download and, for docs-builder, makes its interactive overwrite prompt
+	// appear when there is nothing to update. Skip unless forced.
+	if docsBuilder && !force {
+		if installed := updates.BinaryVersion("docs-builder", "--version"); !updates.UpdateAvailable("elastic", "docs-builder", installed) {
+			r.Info("docs-builder is already at %s; skipping the installer. Pass --force to reinstall.", installed)
+			docsBuilder = false
+		}
+	}
 	if docsBuilder {
 		r.Verbose("Runs the upstream docs-builder installer; it reports the binary path it edits.")
 		progress := r.StartProgress("Preparing docs-builder installer%s", forced(force))

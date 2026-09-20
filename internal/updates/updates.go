@@ -260,6 +260,21 @@ func lookupHint(err error) string {
 	return "Could not query GitHub to determine the latest version"
 }
 
+// UpdateAvailable reports whether a release newer than installed exists for the
+// given GitHub project, using the same comparison as the status table. A tool
+// that is absent, or a lookup this cannot complete, reports true so that callers
+// run the installer rather than silently skip a real update.
+func UpdateAvailable(owner, repo, installed string) bool {
+	if installed == "" {
+		return true
+	}
+	latest, err := githubRelease(owner, repo)
+	if err != nil || latest == "" {
+		return true
+	}
+	return semverGT(latest, installed)
+}
+
 // BinaryVersion reports the version a locally installed tool prints, or an
 // empty string when the tool is absent or prints nothing usable. Callers use it
 // to confirm that an installer actually changed the binary, because the
