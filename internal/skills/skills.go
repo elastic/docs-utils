@@ -64,12 +64,9 @@ func SyncWithProgress(targets []hosts.ID, internal, dryRun bool, progress Progre
 	for repoIndex, repo := range repos {
 		catalog := catalogLabel(repo)
 		reportProgress(progress, repoIndex+1, len(repos), "Fetching "+catalog+" skill catalog")
-		staging, err := clone(repo, dryRun)
+		staging, err := clone(repo)
 		if err != nil {
 			return result, err
-		}
-		if dryRun {
-			continue
 		}
 		commit, err := gitRevision(staging)
 		if err != nil {
@@ -97,8 +94,13 @@ func SyncWithProgress(targets []hosts.ID, internal, dryRun bool, progress Progre
 			reportProgress(progress, skillIndex+1, len(names), "Installing "+catalog+" skill: "+name)
 			source := entries[name]
 			destination := filepath.Join(root, name)
-			if err := replaceDir(source, destination); err != nil {
-				return result, err
+			// A dry run still records what the catalog holds, so the caller can
+			// diff it against installed state and report the prune, but it
+			// writes nothing.
+			if !dryRun {
+				if err := replaceDir(source, destination); err != nil {
+					return result, err
+				}
 			}
 			result.Installed = append(result.Installed, name)
 			result.Records[name] = state.SkillState{Source: repo, Commit: commit}
@@ -164,10 +166,9 @@ func ActiveRepos(internal bool) []string {
 	return repos
 }
 
-func clone(repo string, dryRun bool) (string, error) {
-	if dryRun {
-		return "", nil
-	}
+// clone fetches the catalog even for a dry run: enumerating it is read-only,
+// and without it a dry run cannot say which skills would be pruned.
+func clone(repo string) (string, error) {
 	cache, err := paths.CacheDir()
 	if err != nil {
 		return "", err

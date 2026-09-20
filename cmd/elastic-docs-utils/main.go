@@ -639,6 +639,38 @@ func commandHook(r *ui.Renderer, args []string) error {
 	return nil
 }
 
+// reportPrune removes, or on a dry run reports, the skills that state records
+// as installed from an active catalog but that the catalog no longer holds. A
+// directory this tool did not install is reported and kept, and its state
+// record is kept too so the warning repeats until someone acts on it.
+func reportPrune(r *ui.Renderer, s *state.State, current map[string]state.SkillState, internal, dryRun bool) error {
+	stale := skills.Stale(current, s.Skills, skills.ActiveRepos(internal))
+	if len(stale) == 0 {
+		return nil
+	}
+	skipped, err := skills.RemoveOwned(stale, dryRun)
+	if err != nil {
+		return err
+	}
+	unmanaged := make(map[string]bool, len(skipped))
+	for _, name := range skipped {
+		unmanaged[name] = true
+		r.Warn("Left %s in place: it is no longer in the catalog but was not installed by this tool. Remove it yourself if you no longer want it.", name)
+	}
+	for _, name := range stale {
+		if unmanaged[name] {
+			continue
+		}
+		if dryRun {
+			r.Info("Would prune removed skill: %s", name)
+			continue
+		}
+		delete(s.Skills, name)
+		r.Info("Pruned removed skill: %s", name)
+	}
+	return nil
+}
+
 func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Renderer) error {
 	s, err := state.Load()
 	if err != nil {
@@ -708,6 +740,13 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 			}
 		}
 		r.Info("Would configure %d selected host adapters.", len(ids))
+		// Pruning is on by default, so a dry run has to show what it would
+		// delete. RemoveOwned writes nothing here; it only classifies.
+		if prune {
+			if err := reportPrune(r, &s, skillResult.Records, internal, true); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	for name, host := range adapterResult.Hosts {
@@ -720,25 +759,8 @@ func synchronize(ids []hosts.ID, internal, dryRun, force, prune bool, r *ui.Rend
 		s.Skills[name] = record
 	}
 	if prune {
-		stale := skills.Stale(skillResult.Records, s.Skills, skills.ActiveRepos(internal))
-		if len(stale) > 0 {
-			skipped, err := skills.RemoveOwned(stale, dryRun)
-			if err != nil {
-				return err
-			}
-			unmanaged := make(map[string]bool, len(skipped))
-			for _, name := range skipped {
-				unmanaged[name] = true
-				// Keep the state record so the warning repeats until it is resolved.
-				r.Warn("Left %s in place: it is no longer in the catalog but was not installed by this tool. Remove it yourself if you no longer want it.", name)
-			}
-			for _, name := range stale {
-				if unmanaged[name] {
-					continue
-				}
-				delete(s.Skills, name)
-				r.Info("Pruned removed skill: %s", name)
-			}
+		if err := reportPrune(r, &s, skillResult.Records, internal, false); err != nil {
+			return err
 		}
 	}
 	if err := state.Save(s); err != nil {
