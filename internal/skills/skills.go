@@ -40,8 +40,11 @@ type marker struct {
 
 type Result struct {
 	Installed []string
+	Adopted   []string
+	Skipped   []string
 	Linked    []string
 	Records   map[string]state.SkillState
+	Catalog   map[string]state.SkillState
 	Files     []string
 }
 
@@ -59,7 +62,10 @@ func Sync(targets []hosts.ID, internal, dryRun bool) (Result, error) {
 // SyncWithProgress performs the same synchronization as Sync while reporting
 // catalog fetches, individual skill installations, and host discovery links.
 func SyncWithProgress(targets []hosts.ID, internal, dryRun bool, progress ProgressFunc) (Result, error) {
-	result := Result{Records: map[string]state.SkillState{}}
+	result := Result{
+		Records: map[string]state.SkillState{},
+		Catalog: map[string]state.SkillState{},
+	}
 	repos := repositories(internal)
 	for repoIndex, repo := range repos {
 		catalog := catalogLabel(repo)
@@ -94,16 +100,24 @@ func SyncWithProgress(targets []hosts.ID, internal, dryRun bool, progress Progre
 			reportProgress(progress, skillIndex+1, len(names), "Installing "+catalog+" skill: "+name)
 			source := entries[name]
 			destination := filepath.Join(root, name)
+			record := state.SkillState{Source: repo, Commit: commit}
+			result.Catalog[name] = record
 			// A dry run still records what the catalog holds, so the caller can
 			// diff it against installed state and report the prune, but it
 			// writes nothing.
-			if !dryRun {
-				if err := replaceDir(source, destination); err != nil {
-					return result, err
-				}
+			installed, adopted, err := installSkill(staging, source, destination, dryRun)
+			if err != nil {
+				return result, err
+			}
+			if !installed {
+				result.Skipped = append(result.Skipped, name)
+				continue
 			}
 			result.Installed = append(result.Installed, name)
-			result.Records[name] = state.SkillState{Source: repo, Commit: commit}
+			if adopted {
+				result.Adopted = append(result.Adopted, name)
+			}
+			result.Records[name] = record
 			result.Files = append(result.Files, destination)
 		}
 		if err := os.RemoveAll(staging); err != nil {
@@ -180,7 +194,9 @@ func clone(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", "clone", "--depth", "1", repo, staging)
+	// Keep history so an unmarked skill can be recognized as a previous
+	// version from this catalog and safely adopted.
+	cmd := exec.Command("git", "clone", repo, staging)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("fetch skills from %s: %w: %s", repo, err, strings.TrimSpace(string(out)))
 	}
@@ -206,10 +222,67 @@ func findSkills(root string) (map[string]string, error) {
 	return entries, err
 }
 
+// installSkill replaces a managed destination. It also adopts an unmarked
+// directory when its SKILL.md is an exact blob from this catalog's history.
+// Other unmanaged name collisions remain untouched.
+func installSkill(catalogRoot, source, destination string, dryRun bool) (installed, adopted bool, err error) {
+	owned, err := isOwned(destination)
+	if err != nil {
+		return false, false, err
+	}
+	if !owned {
+		fromCatalog, err := skillCameFromCatalog(catalogRoot, destination)
+		if err != nil {
+			return false, false, err
+		}
+		if !fromCatalog {
+			return false, false, nil
+		}
+		adopted = true
+	}
+	if dryRun {
+		return true, adopted, nil
+	}
+	if err := replaceDirChecked(source, destination, adopted); err != nil {
+		return false, false, err
+	}
+	return true, adopted, nil
+}
+
+func skillCameFromCatalog(catalogRoot, destination string) (bool, error) {
+	skillFile := filepath.Join(destination, "SKILL.md")
+	if _, err := os.Stat(skillFile); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	out, err := exec.Command("git", "-C", catalogRoot, "hash-object", "--no-filters", skillFile).CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("identify existing skill: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	object := strings.TrimSpace(string(out))
+	if err := exec.Command("git", "-C", catalogRoot, "cat-file", "-e", object+"^{blob}").Run(); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 func replaceDir(source, destination string) error {
+	return replaceDirChecked(source, destination, false)
+}
+
+func replaceDirChecked(source, destination string, catalogVerified bool) error {
+	if catalogVerified {
+		return writeReplacement(source, destination)
+	}
 	if err := ensureOwnedOrMissing(destination); err != nil {
 		return err
 	}
+	return writeReplacement(source, destination)
+}
+
+func writeReplacement(source, destination string) error {
 	staging := destination + ".new"
 	if err := os.RemoveAll(staging); err != nil {
 		return err
