@@ -31,6 +31,16 @@ The installer detects available hosts. To choose explicitly:
 elastic-docs-utils install --host claude,codex,cursor --internal
 ```
 
+## Troubleshooting
+
+If the installer stops with `Plugin "elastic-docs-skills" not found in any
+configured marketplace`, you installed a version before 2.8.6. Run the install
+command again. It downloads the latest release, which adds the plugin
+marketplace to Claude Code before it installs the plugin.
+
+Run `elastic-docs-utils version` to check the installed version. Run
+`elastic-docs-utils doctor` to confirm that every host is configured.
+
 ## Commands
 
 ```text
