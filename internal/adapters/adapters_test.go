@@ -137,3 +137,24 @@ func TestParseInstalledPlugins(t *testing.T) {
 		t.Fatal("invalid JSON was accepted")
 	}
 }
+
+func TestParseMarketplaceRepos(t *testing.T) {
+	output := `[{"name":"elastic-docs-skills","source":"github","repo":"elastic/elastic-docs-skills"},{"name":"local","source":"directory","path":"/tmp/x"}]`
+	found, err := parseMarketplaceRepos(output, "elastic/elastic-docs-skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("expected marketplace to be found")
+	}
+	found, err = parseMarketplaceRepos(output, "elastic/other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("expected other marketplace to not be found")
+	}
+	if _, err := parseMarketplaceRepos("not json", "x/y"); err == nil {
+		t.Fatal("expected parse error")
+	}
+}

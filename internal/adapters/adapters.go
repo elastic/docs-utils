@@ -35,6 +35,8 @@ const (
 	legacyPublicMCP = "https://d34ipnu52o64md.cloudfront.net/docs/_mcp"
 	internalMCP     = "https://codex.elastic.dev/mcp"
 	publicPlugin    = "elastic-docs-skills"
+	// publicMarketplaceRepo is the GitHub repo that hosts the plugin marketplace.
+	publicMarketplaceRepo = "elastic/elastic-docs-skills"
 )
 
 type Result struct {
@@ -253,6 +255,11 @@ func claudePluginInstallOrUpdate() error {
 	if err != nil {
 		return err
 	}
+	if !installed {
+		if err := claudeMarketplaceEnsure(publicMarketplaceRepo); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	var args []string
@@ -266,6 +273,49 @@ func claudePluginInstallOrUpdate() error {
 		return fmt.Errorf("claude %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// claudeMarketplaceEnsure registers the marketplace hosted at the GitHub repo
+// when it is not configured yet. Without it, `claude plugin install` fails with
+// "not found in any configured marketplace".
+func claudeMarketplaceEnsure(repo string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "claude", "plugin", "marketplace", "list", "--json").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude plugin marketplace list: %s", strings.TrimSpace(string(out)))
+	}
+	found, err := parseMarketplaceRepos(string(out), repo)
+	if err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	addCtx, addCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer addCancel()
+	out, err = exec.CommandContext(addCtx, "claude", "plugin", "marketplace", "add", repo).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude plugin marketplace add %s: %s", repo, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// parseMarketplaceRepos reports whether a GitHub marketplace for repo appears in
+// the output of `claude plugin marketplace list --json`.
+func parseMarketplaceRepos(output, repo string) (bool, error) {
+	var marketplaces []struct {
+		Repo string `json:"repo"`
+	}
+	if err := json.Unmarshal([]byte(output), &marketplaces); err != nil {
+		return false, fmt.Errorf("parse claude plugin marketplace list: %w", err)
+	}
+	for _, m := range marketplaces {
+		if strings.EqualFold(m.Repo, repo) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // claudePluginInstalled checks whether the named plugin appears in the output
